@@ -234,3 +234,13 @@ cd src && svn revert en.lproj/DisplayPreferences.strings && svn diff --diff-cmd 
   SKDisplayPreferences.h SKDisplayPreferences.m \
   > ../patches/configurable-dark-mode-colors.diff
 ```
+
+## License
+
+BSD 3-clause throughout. Everything under `src/` is Skim — Copyright (c)
+2006-2026 Michael O. McCracken and contributors, and for SkimNotes Copyright (c)
+2008-2026 Christiaan Hofman and contributors — under the license reproduced in
+`src/LICENSE` and `src/SkimNotes/License.txt`; bundled third-party code under
+`src/vendorsrc/` keeps its own license next to it. The changes this fork makes
+to those files, and everything outside `src/`, are Copyright (c) 2026 Eduardo
+Simioni under the same terms, in `LICENSE`.
