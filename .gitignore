@@ -1,0 +1,7 @@
+# svn working-copy state and Xcode output — never part of the fork
+src/.svn/
+**/build/
+*.xcworkspace/
+xcuserdata/
+*.log
+.DS_Store
