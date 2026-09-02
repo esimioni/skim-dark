@@ -76,6 +76,8 @@ pre-inverted from the same math.
 - `tools/filtercheck.swift` — renders white and black through the real filter
   chain and prints the resulting sRGB values, so the color math is verified
   numerically rather than by eye
+- `tools/renderpage.swift` — renders a PDF page through the same filter chain
+  and writes a PNG: how a page looks, produced and measured without a screen capture
 - `tools/postbuild.py` — strips Sparkle's `SUFeedURL` from the built bundle and
   re-signs it; run after every build (see below)
 - `tools/install.sh` — quits Skim, swaps `/Applications/Skim.app`, reopens
