@@ -45,6 +45,7 @@
 #import "SKRightSideViewController.h"
 #import <Quartz/Quartz.h>
 #import "SKStringConstants.h"
+#import "NSGraphics_SKExtensions.h"
 #import "SKNoteWindowController.h"
 #import "SKInfoWindowController.h"
 #import "SKBookmarkController.h"
@@ -2552,6 +2553,7 @@ static NSArray *mergedSnapshotSetups(NSArray *setups1, NSArray *setups2);
     for (NSString *key in @[SKBackgroundColorKey, SKFullScreenBackgroundColorKey,
                             SKDarkBackgroundColorKey, SKDarkFullScreenBackgroundColorKey,
                             SKInvertColorsInDarkModeKey,
+                            SKInvertedColorsBackgroundWhiteKey, SKInvertedColorsTextBlackKey,
                             SKThumbnailSizeKey, SKSnapshotThumbnailSizeKey,
                             SKInterpolationQualityKey,
                             SKTableFontSizeKey])
@@ -2569,6 +2571,7 @@ static NSArray *mergedSnapshotSetups(NSArray *setups1, NSArray *setups2);
     for (NSString *key in @[SKBackgroundColorKey, SKFullScreenBackgroundColorKey,
                             SKDarkBackgroundColorKey, SKDarkFullScreenBackgroundColorKey,
                             SKInvertColorsInDarkModeKey,
+                            SKInvertedColorsBackgroundWhiteKey, SKInvertedColorsTextBlackKey,
                             SKThumbnailSizeKey, SKSnapshotThumbnailSizeKey,
                             SKInterpolationQualityKey,
                             SKTableFontSizeKey]) {
@@ -2649,7 +2652,8 @@ static NSArray *mergedSnapshotSetups(NSArray *setups1, NSArray *setups2);
     if (context == &SKMainWindowDefaultsObservationContext) {
         
         // A default value that we are observing has changed
-        if ([keyPath isEqualToString:SKBackgroundColorKey] || [keyPath isEqualToString:SKDarkBackgroundColorKey] || [keyPath isEqualToString:SKInvertColorsInDarkModeKey]) {
+        if ([keyPath isEqualToString:SKBackgroundColorKey] || [keyPath isEqualToString:SKDarkBackgroundColorKey] || [keyPath isEqualToString:SKInvertColorsInDarkModeKey] ||
+            [keyPath isEqualToString:SKInvertedColorsBackgroundWhiteKey] || [keyPath isEqualToString:SKInvertedColorsTextBlackKey]) {
             NSColor *backgroundColor = nil;
             if (interactionMode == SKNormalMode)
                 backgroundColor = [PDFView defaultBackgroundColor];

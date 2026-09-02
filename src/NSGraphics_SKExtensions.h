@@ -69,4 +69,12 @@ extern NSArray<CIFilter *> *SKColorEffectFilters(void);
 
 extern NSColor *SKPreInvertedColor(NSColor *color);
 
+extern NSString * const SKInvertedColorsBackgroundWhiteKey;
+extern NSString * const SKInvertedColorsTextBlackKey;
+
+// The colors an originally white page background and originally black content
+// are mapped to, from the preferences or the built in defaults.
+extern NSColor *SKInvertedColorsBackgroundColor(void);
+extern NSColor *SKInvertedColorsTextColor(void);
+
 NS_ASSUME_NONNULL_END

@@ -10,6 +10,8 @@
             <connections>
                 <outlet property="addRemoveColorButton" destination="hIe-uh-wfz" id="WQp-NU-O2B"/>
                 <outlet property="colorSwatch" destination="0cC-e4-fiv" id="trB-5r-ovc"/>
+                <outlet property="invertedBackgroundColorWell" destination="Dbg-Cw-el1" id="Dbg-Ou-tl1"/>
+                <outlet property="invertedTextColorWell" destination="Dtx-Cw-el2" id="Dtx-Ou-tl2"/>
                 <outlet property="fullScreenColorWell" destination="17" id="nac-t1-tWK"/>
                 <outlet property="normalColorWell" destination="16" id="cTi-qG-yUN"/>
                 <outlet property="view" destination="1" id="81"/>
@@ -86,6 +88,70 @@
                         <binding destination="61" name="value" keyPath="values.SKInvertColorsInDarkMode" id="XrJ-7e-odj"/>
                     </connections>
                 </button>
+                <textField horizontalHuggingPriority="253" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="Dbg-La-bl1" userLabel="Page:">
+                    <rect key="frame" x="63" y="208" width="39" height="16"/>
+                    <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" alignment="right" title="Page:" id="Dbg-Ce-ll1">
+                        <font key="font" metaFont="system"/>
+                        <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                    </textFieldCell>
+                    <connections>
+                        <binding destination="-2" name="hidden" keyPath="allowsDarkMode" id="Dbg-Bi-hd1">
+                            <dictionary key="options">
+                                <string key="NSValueTransformerName">NSNegateBoolean</string>
+                            </dictionary>
+                        </binding>
+                        <binding destination="61" name="enabled" keyPath="values.SKInvertColorsInDarkMode" id="Dbg-Bi-en1"/>
+                    </connections>
+                </textField>
+                <colorWell toolTip="Color that an originally white page background becomes in Dark Mode" translatesAutoresizingMaskIntoConstraints="NO" id="Dbg-Cw-el1" customClass="SKColorWell">
+                    <rect key="frame" x="108" y="204" width="52" height="24"/>
+                    <constraints>
+                        <constraint firstAttribute="height" constant="24" id="Dbg-Cn-hg1"/>
+                        <constraint firstAttribute="width" constant="52" id="Dbg-Cn-wd1"/>
+                    </constraints>
+                    <color key="color" red="0.17647058799999999" green="0.17647058799999999" blue="0.17647058799999999" alpha="1" colorSpace="calibratedRGB"/>
+                    <connections>
+                        <accessibilityConnection property="link" destination="Dtx-Cw-el2" id="Dbg-Ax-lk1"/>
+                        <accessibilityConnection property="title" destination="Dbg-La-bl1" id="Dbg-Ax-ti1"/>
+                        <binding destination="-2" name="hidden" keyPath="allowsDarkMode" id="Dbg-Bi-hd2">
+                            <dictionary key="options">
+                                <string key="NSValueTransformerName">NSNegateBoolean</string>
+                            </dictionary>
+                        </binding>
+                        <binding destination="61" name="enabled" keyPath="values.SKInvertColorsInDarkMode" id="Dbg-Bi-en2"/>
+                        <outlet property="nextKeyView" destination="Dtx-Cw-el2" id="Dbg-Nk-vw1"/>
+                    </connections>
+                </colorWell>
+                <textField horizontalHuggingPriority="253" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="Dtx-La-bl2" userLabel="Text:">
+                    <rect key="frame" x="180" y="208" width="34" height="16"/>
+                    <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" alignment="right" title="Text:" id="Dtx-Ce-ll2">
+                        <font key="font" metaFont="system"/>
+                        <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                    </textFieldCell>
+                    <connections>
+                        <binding destination="-2" name="hidden" keyPath="allowsDarkMode" id="Dtx-Bi-hd1">
+                            <dictionary key="options">
+                                <string key="NSValueTransformerName">NSNegateBoolean</string>
+                            </dictionary>
+                        </binding>
+                        <binding destination="61" name="enabled" keyPath="values.SKInvertColorsInDarkMode" id="Dtx-Bi-en1"/>
+                    </connections>
+                </textField>
+                <colorWell toolTip="Color that originally black text becomes in Dark Mode" translatesAutoresizingMaskIntoConstraints="NO" id="Dtx-Cw-el2" customClass="SKColorWell">
+                    <rect key="frame" x="221" y="204" width="52" height="24"/>
+                    <color key="color" red="1" green="1" blue="1" alpha="1" colorSpace="calibratedRGB"/>
+                    <connections>
+                        <accessibilityConnection property="title" destination="Dtx-La-bl2" id="Dtx-Ax-ti1"/>
+                        <binding destination="-2" name="hidden" keyPath="allowsDarkMode" id="Dtx-Bi-hd2">
+                            <dictionary key="options">
+                                <string key="NSValueTransformerName">NSNegateBoolean</string>
+                            </dictionary>
+                        </binding>
+                        <binding destination="61" name="enabled" keyPath="values.SKInvertColorsInDarkMode" id="Dtx-Bi-en2"/>
+                    </connections>
+                </colorWell>
                 <textField horizontalHuggingPriority="253" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="kIO-8q-QfL" userLabel="Image smoothing:">
                     <rect key="frame" x="30" y="264" width="113" height="16"/>
                     <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" alignment="right" title="Image smoothing:" id="KLe-Zv-fHm">
@@ -329,7 +395,19 @@
                 <constraint firstItem="14" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="1" secondAttribute="leading" constant="32" id="4ss-5E-Zl7"/>
                 <constraint firstItem="20" firstAttribute="leading" secondItem="8" secondAttribute="leading" id="5rf-mP-kga"/>
                 <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="17" secondAttribute="trailing" constant="20" symbolic="YES" id="5tE-Xa-3Xe"/>
-                <constraint firstItem="26" firstAttribute="top" secondItem="I3F-RC-rb4" secondAttribute="bottom" constant="12" id="6I5-BJ-rIA"/>
+                <constraint firstItem="26" firstAttribute="top" secondItem="Dbg-Cw-el1" secondAttribute="bottom" constant="12" id="6I5-BJ-rIA"/>
+                <constraint firstItem="Dbg-La-bl1" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="1" secondAttribute="leading" constant="48" id="Dbg-Cn-ld1"/>
+                <constraint firstItem="Dbg-La-bl1" firstAttribute="leading" secondItem="1" secondAttribute="leading" priority="252" constant="48" id="Dbg-Cn-ld2"/>
+                <constraint firstItem="Dbg-La-bl1" firstAttribute="top" secondItem="I3F-RC-rb4" secondAttribute="bottom" constant="10" id="Dbg-Cn-tp1"/>
+                <constraint firstItem="Dbg-Cw-el1" firstAttribute="leading" secondItem="Dbg-La-bl1" secondAttribute="trailing" constant="8" symbolic="YES" id="Dbg-Cn-lw1"/>
+                <constraint firstItem="Dbg-Cw-el1" firstAttribute="centerY" secondItem="Dbg-La-bl1" secondAttribute="centerY" id="Dbg-Cn-cy1"/>
+                <constraint firstItem="Dtx-La-bl2" firstAttribute="leading" secondItem="Dbg-Cw-el1" secondAttribute="trailing" constant="20" id="Dtx-Cn-ld1"/>
+                <constraint firstItem="Dtx-La-bl2" firstAttribute="centerY" secondItem="Dbg-La-bl1" secondAttribute="centerY" id="Dtx-Cn-cy1"/>
+                <constraint firstItem="Dtx-Cw-el2" firstAttribute="leading" secondItem="Dtx-La-bl2" secondAttribute="trailing" constant="7" id="Dtx-Cn-lw1"/>
+                <constraint firstItem="Dtx-Cw-el2" firstAttribute="top" secondItem="Dbg-Cw-el1" secondAttribute="top" id="Dtx-Cn-tp1"/>
+                <constraint firstItem="Dtx-Cw-el2" firstAttribute="bottom" secondItem="Dbg-Cw-el1" secondAttribute="bottom" id="Dtx-Cn-bt1"/>
+                <constraint firstItem="Dtx-Cw-el2" firstAttribute="width" secondItem="Dbg-Cw-el1" secondAttribute="width" id="Dtx-Cn-wd1"/>
+                <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="Dtx-Cw-el2" secondAttribute="trailing" constant="20" symbolic="YES" id="Dtx-Cn-tr1"/>
                 <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="1tA-YI-NyE" secondAttribute="trailing" constant="20" symbolic="YES" id="7Ci-kS-xsv"/>
                 <constraint firstItem="13" firstAttribute="top" secondItem="26" secondAttribute="bottom" constant="12" id="8ef-Or-gbm"/>
                 <constraint firstItem="16" firstAttribute="top" secondItem="13" secondAttribute="bottom" constant="8" symbolic="YES" id="CGC-ZG-p4E"/>

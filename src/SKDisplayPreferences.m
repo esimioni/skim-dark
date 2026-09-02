@@ -54,20 +54,22 @@ static char SKDisplayPreferencesColorSwatchObservationContext;
 
 @interface SKDisplayPreferences ()
 - (void)updateBackgroundColors;
+- (void)updateInvertedColors;
 @end
     
 @implementation SKDisplayPreferences
 
-@synthesize normalColorWell, fullScreenColorWell, colorSwatch, addRemoveColorButton;
+@synthesize normalColorWell, fullScreenColorWell, invertedBackgroundColorWell, invertedTextColorWell, colorSwatch, addRemoveColorButton;
 @dynamic allowsDarkMode, countOfSizes;
 
 - (void)dealloc {
     if (@available(macOS 10.14, *)) {
         NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];
-        for (NSString *key in @[SKBackgroundColorKey, SKFullScreenBackgroundColorKey, SKDarkBackgroundColorKey, SKDarkFullScreenBackgroundColorKey]) {
+        for (NSString *key in @[SKBackgroundColorKey, SKFullScreenBackgroundColorKey, SKDarkBackgroundColorKey, SKDarkFullScreenBackgroundColorKey, SKInvertedColorsBackgroundWhiteKey, SKInvertedColorsTextBlackKey]) {
             @try { [sud removeObserver:self forKeyPath:key context:&SKDisplayPreferencesDefaultsObservationContext]; }
             @catch(id e) {}
         }
+        [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
     }
     @try {
         [colorSwatch unbind:SKColorsBinding];
@@ -97,13 +99,20 @@ static char SKDisplayPreferencesColorSwatchObservationContext;
         [fullScreenColorWell unbind:NSValueBinding];
         [fullScreenColorWell setAction:@selector(changeFullScreenBackgroundColor:)];
         [fullScreenColorWell setTarget:self];
+        [invertedBackgroundColorWell setAction:@selector(changeInvertedBackgroundColor:)];
+        [invertedBackgroundColorWell setTarget:self];
+        [invertedTextColorWell setAction:@selector(changeInvertedTextColor:)];
+        [invertedTextColorWell setTarget:self];
         
         [self updateBackgroundColors];
+        [self updateInvertedColors];
         
         NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];
-        for (NSString *key in @[SKBackgroundColorKey, SKFullScreenBackgroundColorKey, SKDarkBackgroundColorKey, SKDarkFullScreenBackgroundColorKey])
+        for (NSString *key in @[SKBackgroundColorKey, SKFullScreenBackgroundColorKey, SKDarkBackgroundColorKey, SKDarkFullScreenBackgroundColorKey, SKInvertedColorsBackgroundWhiteKey, SKInvertedColorsTextBlackKey])
             [sud addObserver:self forKeyPath:key options:0 context:&SKDisplayPreferencesDefaultsObservationContext];
         [NSApp addObserver:self forKeyPath:@"effectiveAppearance" options:0 context:&SKDisplayPreferencesDefaultsObservationContext];
+        // the default the color wells fall back to depends on the high contrast setting
+        [[[NSWorkspace sharedWorkspace] notificationCenter] addObserver:self selector:@selector(handleAccessibilityDisplayOptionsDidChange:) name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
     }
 }
 
@@ -138,6 +147,14 @@ static char SKDisplayPreferencesColorSwatchObservationContext;
     [[NSUserDefaults standardUserDefaults] setColor:[sender color] forKey:key];
 }
 
+- (IBAction)changeInvertedBackgroundColor:(id)sender {
+    [[NSUserDefaults standardUserDefaults] setColor:[sender color] forKey:SKInvertedColorsBackgroundWhiteKey];
+}
+
+- (IBAction)changeInvertedTextColor:(id)sender {
+    [[NSUserDefaults standardUserDefaults] setColor:[sender color] forKey:SKInvertedColorsTextBlackKey];
+}
+
 - (IBAction)addRemoveColor:(id)sender {
     NSInteger i = [colorSwatch selectedColorIndex];
     if ([sender selectedTag] == 0) {
@@ -152,11 +169,18 @@ static char SKDisplayPreferencesColorSwatchObservationContext;
     }
 }
 
+#pragma mark Notifications
+
+- (void)handleAccessibilityDisplayOptionsDidChange:(NSNotification *)notification {
+    [self updateInvertedColors];
+}
+
 #pragma mark KVO
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
     if (context == &SKDisplayPreferencesDefaultsObservationContext) {
         [self updateBackgroundColors];
+        [self updateInvertedColors];
     } else if (context == &SKDisplayPreferencesColorSwatchObservationContext) {
         [addRemoveColorButton setEnabled:([colorSwatch selectedColorIndex] != -1 && [[colorSwatch colors] count] > 1) forSegment:1];
     } else {
@@ -183,6 +207,11 @@ static char SKDisplayPreferencesColorSwatchObservationContext;
     }
     [normalColorWell setColor:color];
     [fullScreenColorWell setColor:fsColor];
+}
+
+- (void)updateInvertedColors {
+    [invertedBackgroundColorWell setColor:SKInvertedColorsBackgroundColor()];
+    [invertedTextColorWell setColor:SKInvertedColorsTextColor()];
 }
 
 @end

@@ -46,12 +46,16 @@ NS_ASSUME_NONNULL_BEGIN
 @interface SKDisplayPreferences : NSViewController <SKPreferencePane> {
     NSColorWell *normalColorWell;
     NSColorWell *fullScreenColorWell;
+    NSColorWell *invertedBackgroundColorWell;
+    NSColorWell *invertedTextColorWell;
     SKColorSwatch *colorSwatch;
     NSSegmentedControl *addRemoveColorButton;
 }
 
 @property (nonatomic, nullable, strong) IBOutlet NSColorWell *normalColorWell;
 @property (nonatomic, nullable, strong) IBOutlet NSColorWell *fullScreenColorWell;
+@property (nonatomic, nullable, strong) IBOutlet NSColorWell *invertedBackgroundColorWell;
+@property (nonatomic, nullable, strong) IBOutlet NSColorWell *invertedTextColorWell;
 @property (nonatomic, nullable, strong) IBOutlet SKColorSwatch *colorSwatch;
 @property (nonatomic, nullable, strong) IBOutlet NSSegmentedControl *addRemoveColorButton;
 
@@ -62,6 +66,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (IBAction)changeBackgroundColor:(nullable id)sender;
 - (IBAction)changeFullScreenBackgroundColor:(nullable id)sender;
+- (IBAction)changeInvertedBackgroundColor:(nullable id)sender;
+- (IBAction)changeInvertedTextColor:(nullable id)sender;
 
 - (IBAction)addRemoveColor:(nullable id)sender;
 

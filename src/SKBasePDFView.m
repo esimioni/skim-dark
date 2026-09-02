@@ -79,7 +79,7 @@ static char SKBasePDFViewDefaultsObservationContext;
 
 static inline NSArray *defaultKeysToObserve() {
     if (@available(macOS 10.14, *))
-        return @[SKInvertColorsInDarkModeKey, SKSepiaToneKey, SKWhitePointKey];
+        return @[SKInvertColorsInDarkModeKey, SKSepiaToneKey, SKWhitePointKey, SKInvertedColorsBackgroundWhiteKey, SKInvertedColorsTextBlackKey];
     else
         return @[SKSepiaToneKey, SKWhitePointKey];
 }
