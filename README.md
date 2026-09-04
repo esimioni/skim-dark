@@ -106,6 +106,10 @@ workarounds, none of which touch the patch itself:
 3. Build `arm64` only. The universal build pulls in an x86_64 slice of the
    frameworks that is not produced here.
 
+All three are trunk-specific: release 1.7.15 builds stock on Xcode 26.6 with
+Skim+'s `scripts/build.sh` (universal, absolute `SYMROOT`), so a build failure
+on a release tag is something else.
+
 ```sh
 cd src
 for t in SkimNotesBase SkimNotes; do
