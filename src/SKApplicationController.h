@@ -67,6 +67,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (IBAction)showPreferencePanel:(nullable id)sender;
 - (IBAction)showReleaseNotes:(nullable id)sender;
 - (IBAction)showDownloads:(nullable id)sender;
+- (IBAction)toggleInvertColorsInDarkMode:(nullable id)sender;
 
 @property (nonatomic, nullable, strong) IBOutlet NSMenu *noteColumnsMenu, *noteTypeMenu;
 

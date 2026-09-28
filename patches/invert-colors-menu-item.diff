@@ -1,0 +1,55 @@
+Index: Base.lproj/MainMenu.xib
+===================================================================
+--- Base.lproj/MainMenu.xib	(revision 16409)
++++ Base.lproj/MainMenu.xib	(working copy)
+@@ -706,6 +706,12 @@
+                             <menuItem title="Show Reading Bar" keyEquivalent="B" id="716">
+                                 <connections>
+                                     <action selector="toggleReadingBar:" target="-1" id="718"/>
++                                </connections>
++                            </menuItem>
++                            <menuItem title="Invert Colors in Dark Mode" keyEquivalent="i" id="Inv-Dk-mnu">
++                                <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>
++                                <connections>
++                                    <action selector="toggleInvertColorsInDarkMode:" target="-1" id="Inv-Dk-act"/>
+                                 </connections>
+                             </menuItem>
+                             <menuItem isSeparatorItem="YES" id="796">
+Index: SKApplicationController.h
+===================================================================
+--- SKApplicationController.h	(revision 16409)
++++ SKApplicationController.h	(working copy)
+@@ -67,6 +67,7 @@
+ - (IBAction)showPreferencePanel:(nullable id)sender;
+ - (IBAction)showReleaseNotes:(nullable id)sender;
+ - (IBAction)showDownloads:(nullable id)sender;
++- (IBAction)toggleInvertColorsInDarkMode:(nullable id)sender;
+ 
+ @property (nonatomic, nullable, strong) IBOutlet NSMenu *noteColumnsMenu, *noteTypeMenu;
+ 
+Index: SKApplicationController.m
+===================================================================
+--- SKApplicationController.m	(revision 16409)
++++ SKApplicationController.m	(working copy)
+@@ -414,6 +414,11 @@
+ }
+ 
+ - (IBAction)changeFindPaneState:(id)sender {}
++
++- (IBAction)toggleInvertColorsInDarkMode:(id)sender {
++    NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];
++    [sud setBool:[sud boolForKey:SKInvertColorsInDarkModeKey] == NO forKey:SKInvertColorsInDarkModeKey];
++}
+ 
+ - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
+     SEL action = [menuItem action];
+@@ -434,6 +439,9 @@
+     } else if (action == @selector(changeFindPaneState:)) {
+         [menuItem setHidden:YES];
+         return NO;
++    } else if (action == @selector(toggleInvertColorsInDarkMode:)) {
++        [menuItem setState:[[NSUserDefaults standardUserDefaults] boolForKey:SKInvertColorsInDarkModeKey] ? NSControlStateValueOn : NSControlStateValueOff];
++        return YES;
+     }
+     return YES;
+ }

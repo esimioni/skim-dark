@@ -13,6 +13,10 @@ the plain white number the background one already used still works. With both
 unset the math reduces exactly to upstream, verified by tools/filtercheck.swift
 (white -> #2D2D2D, black -> #FFFFFF).
 
+Also adds View > Invert Colors in Dark Mode (ctrl-cmd-I), which flips the same
+preference as the Display checkbox: upstream exposes it only there and to
+AppleScript, so there was no way to toggle it from the keyboard.
+
 Idempotent: running it twice is a no-op. Run after `svn up`.
 """
 import sys, pathlib
@@ -390,6 +394,46 @@ EDITS = [
     ("Base.lproj/DisplayPreferences.xib",
      '                <constraint firstItem="26" firstAttribute="top" secondItem="I3F-RC-rb4" secondAttribute="bottom" constant="12" id="6I5-BJ-rIA"/>',
      XIB_CONSTRAINTS),
+
+    # View > Invert Colors in Dark Mode, ctrl-cmd-I (the one I combination Skim
+    # leaves free). It sets the same default as the checkbox, so the open
+    # documents follow it through the observers that already watch that key.
+    ("Base.lproj/MainMenu.xib",
+     '                                    <action selector="toggleReadingBar:" target="-1" id="718"/>\n'
+     '                                </connections>\n'
+     '                            </menuItem>\n',
+     '                                    <action selector="toggleReadingBar:" target="-1" id="718"/>\n'
+     '                                </connections>\n'
+     '                            </menuItem>\n'
+     '                            <menuItem title="Invert Colors in Dark Mode" keyEquivalent="i" id="Inv-Dk-mnu">\n'
+     '                                <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>\n'
+     '                                <connections>\n'
+     '                                    <action selector="toggleInvertColorsInDarkMode:" target="-1" id="Inv-Dk-act"/>\n'
+     '                                </connections>\n'
+     '                            </menuItem>\n'),
+    ("SKApplicationController.h",
+     '- (IBAction)showDownloads:(nullable id)sender;\n',
+     '- (IBAction)showDownloads:(nullable id)sender;\n'
+     '- (IBAction)toggleInvertColorsInDarkMode:(nullable id)sender;\n'),
+    ("SKApplicationController.m",
+     '- (IBAction)changeFindPaneState:(id)sender {}\n',
+     '- (IBAction)changeFindPaneState:(id)sender {}\n\n'
+     '- (IBAction)toggleInvertColorsInDarkMode:(id)sender {\n'
+     '    NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];\n'
+     '    [sud setBool:[sud boolForKey:SKInvertColorsInDarkModeKey] == NO forKey:SKInvertColorsInDarkModeKey];\n'
+     '}\n'),
+    ("SKApplicationController.m",
+     '    } else if (action == @selector(changeFindPaneState:)) {\n'
+     '        [menuItem setHidden:YES];\n'
+     '        return NO;\n'
+     '    }\n',
+     '    } else if (action == @selector(changeFindPaneState:)) {\n'
+     '        [menuItem setHidden:YES];\n'
+     '        return NO;\n'
+     '    } else if (action == @selector(toggleInvertColorsInDarkMode:)) {\n'
+     '        [menuItem setState:[[NSUserDefaults standardUserDefaults] boolForKey:SKInvertColorsInDarkModeKey] ? NSControlStateValueOn : NSControlStateValueOff];\n'
+     '        return YES;\n'
+     '    }\n'),
 ]
 
 # Two phases on purpose. An anchor that upstream rewrote makes the whole run

@@ -8,7 +8,14 @@
 #
 # Skim must be quit for both steps: a running app keeps the old binary mapped,
 # and it rewrites its user defaults on quit, discarding anything written while
-# it was up. Documents reopen by themselves on the next launch.
+# it was up.
+#
+# The documents that were open come back through SKIsRelaunch, the flag Skim's
+# own updater sets before a relaunch: the next launch reopens SKLastOpenFileNames
+# (written on quit, with each window's setup) and clears the flag. Nothing else
+# brings them back — macOS does not restore Skim's windows, and Skim's own
+# "reopen last files" preference defaults to never (measured 2026-09-28: without
+# the flag both documents stayed closed).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,7 +29,9 @@ codesign --verify --deep "$BUILT" 2>/dev/null || { echo "build sem assinatura v�
 /usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$BUILT/Contents/Info.plist" >/dev/null 2>&1 \
   && { echo "SUFeedURL ainda no bundle — rode tools/postbuild.py"; exit 1; }
 
+WAS_RUNNING=0
 if pgrep -xq Skim; then
+  WAS_RUNNING=1
   echo "fechando o Skim..."
   osascript -e 'tell application "Skim" to quit' || true
   for _ in $(seq 30); do pgrep -xq Skim || break; sleep 1; done
@@ -48,6 +57,10 @@ migrate_key SKDarkModeTextColor SKInvertedColorsTextBlack
 if [[ $DARK_CHROME -eq 1 ]]; then
   defaults write -app Skim SKDisableSearchBarBlurring -bool YES
   echo "SKDisableSearchBarBlurring=YES  (desfazer: defaults delete -app Skim SKDisableSearchBarBlurring)"
+fi
+
+if [[ $WAS_RUNNING -eq 1 ]]; then
+  defaults write -app Skim SKIsRelaunch -bool YES
 fi
 
 open -a "$DEST"

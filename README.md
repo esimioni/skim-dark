@@ -2,7 +2,8 @@
 
 A fork of [Skim](https://skim-app.sourceforge.io/) (BSD 3-clause) that makes
 the *text* end of the dark-mode inversion configurable, and puts both ends in
-the preferences window. Proposed upstream and declined, so it is maintained
+the preferences window; it also toggles the inversion itself from the keyboard
+(`⌃⌘I`). The colors were proposed upstream and declined, so it is maintained
 here: [github.com/esimioni/skim-dark](https://github.com/esimioni/skim-dark).
 
 ## The problem
@@ -66,6 +67,23 @@ added to `defaultKeysToObserve()` in `SKBasePDFView`, and to the observers in
 `SKMainWindowController` that recompute the window background, which is
 pre-inverted from the same math.
 
+## Keyboard toggle
+
+**View > Invert Colors in Dark Mode**, `⌃⌘I`, flips the same preference as the
+Display checkbox and carries a checkmark while it is on. Upstream exposes that
+preference only in the checkbox and to AppleScript (`inverted` of the `PDF display
+preferences` class), so seeing a page in its original colors meant a trip to
+Preferences. `⌃⌘I` is the one `I` combination Skim leaves free: `⌘I` is Get Info,
+`⇧⌘I` the status bar, `⌥⌘I` a freehand note. The action lives in
+`SKApplicationController`, at the end of the responder chain, so it answers from
+any Skim window; the open documents follow it through the observers that already
+watch the key.
+
+Checked on the installed app on 2026-09-28: a real `⌃⌘I` keystroke (System
+Events, with Skim in front) takes the page from `#2C2C2C` to `#FFFFFF` and back,
+and the preference flips with it. The same key posted straight to the process
+with `CGEventPostToPid` changed nothing, so that is not a way to test it.
+
 ## Layout
 
 - `src/` — Skim trunk at the revision of the last `upstream:` commit, with the
@@ -80,23 +98,27 @@ pre-inverted from the same math.
   and writes a PNG: how a page looks, produced and measured without a screen capture
 - `tools/postbuild.py` — strips Sparkle's `SUFeedURL` from the built bundle and
   re-signs it; run after every build (see below)
-- `tools/install.sh` — quits Skim, swaps `/Applications/Skim.app`, reopens
-- `patches/` — `svn diff` output, which is what upstream would receive
+- `tools/install.sh` — quits Skim, swaps `/Applications/Skim.app`, reopens it
+  with the documents that were open
+- `patches/` — `svn diff` output, one file per change, which is what upstream
+  would receive
 - `LICENSE` — BSD 3-clause: upstream's, and the same terms for the fork
 
-Seven files: the color math (`NSGraphics_SKExtensions.h/.m`), the live update
-(`SKBasePDFView.m`, `SKMainWindowController.m`), and the preference pane
-(`SKDisplayPreferences.h/.m` plus `Base.lproj/DisplayPreferences.xib`). Only the
-Base localization gains the two new labels; the other
-`*.lproj/DisplayPreferences.strings` are untouched and fall back to English.
+The colors touch seven files: the color math (`NSGraphics_SKExtensions.h/.m`),
+the live update (`SKBasePDFView.m`, `SKMainWindowController.m`), and the
+preference pane (`SKDisplayPreferences.h/.m` plus
+`Base.lproj/DisplayPreferences.xib`). The keyboard toggle touches three more:
+`Base.lproj/MainMenu.xib` and `SKApplicationController.h/.m`. Only the Base
+localization gains the new labels; the other `*.lproj/*.strings` are untouched
+and fall back to English.
 
-⚠️ A build rewrites `en.lproj/DisplayPreferences.strings` in the source tree.
-It is a build artifact, not part of the patch — `svn revert` it before
-regenerating the diff.
+⚠️ A build rewrites `en.lproj/DisplayPreferences.strings` and
+`en.lproj/MainMenu.strings` in the source tree. They are build artifacts, not
+part of the patch — `svn revert` them before regenerating the diffs.
 
 ## Build
 
-Skim's trunk does not build straight out of the box on Xcode 26. Three
+Skim's trunk does not build straight out of the box on Xcode 26 or 27. Four
 workarounds, none of which touch the patch itself:
 
 1. Build `SkimNotesBase` and `SkimNotes` first — the Skim target expects both
@@ -105,20 +127,26 @@ workarounds, none of which touch the patch itself:
    stale hardcoded path.
 3. Build `arm64` only. The universal build pulls in an x86_64 slice of the
    frameworks that is not produced here.
+4. Pass `MACOSX_DEPLOYMENT_TARGET=12.0`. The projects ask for 10.13–10.15, and
+   Xcode 27 fails the build on that (*"the range of supported deployment target
+   versions is 12.0 to 27.0.x"*); Xcode 26 did not. The build then carries ~350
+   deprecation warnings, none of them in the fork's lines.
 
-All three are trunk-specific: release 1.7.15 builds stock on Xcode 26.6 with
-Skim+'s `scripts/build.sh` (universal, absolute `SYMROOT`), so a build failure
-on a release tag is something else.
+The first three are trunk-specific: release 1.7.15 builds stock on Xcode 26.6
+with Skim+'s `scripts/build.sh` (universal, absolute `SYMROOT`), so a build
+failure on a release tag is something else. The fourth came with Xcode 27
+(installed here 2026-09-15), not with the trunk.
 
 ```sh
 cd src
 for t in SkimNotesBase SkimNotes; do
   xcodebuild -project SkimNotes/SkimNotes.xcodeproj -target "$t" -configuration Release \
-    SYMROOT="$PWD/build" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+    SYMROOT="$PWD/build" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES MACOSX_DEPLOYMENT_TARGET=12.0 \
     CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO
 done
 xcodebuild -project Skim.xcodeproj -target Skim -configuration Release \
-  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES MACOSX_DEPLOYMENT_TARGET=12.0 \
+  CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO \
   FRAMEWORK_SEARCH_PATHS="$PWD/build/Release \$(inherited)"
 cd .. && python3 tools/postbuild.py src/build/Release/Skim.app && tools/install.sh
 ```
@@ -232,18 +260,22 @@ rebuilds, for good. If a ticket is ever filed again: the one that got rejected w
 words of math and function names with no screenshot, and the reply engaged with none
 of it — put the ask in one sentence, the result in one image, the details in the attachment.
 
-`patches/` holds the `svn diff` in the form they would expect. Regenerate it
-against the seven patched files only — never the whole tree, which would drag in
-the build workaround and the strings artifact — and force real unified diff,
-since svn's built-in one ignores `-U`:
+`patches/` holds the `svn diff` in the form they would expect, one file per
+change. Regenerate each against its own patched files only — never the whole
+tree, which would drag in the build workaround and the strings artifacts — and
+force real unified diff, since svn's built-in one ignores `-U`:
 
 ```sh
-cd src && svn revert en.lproj/DisplayPreferences.strings && svn diff --diff-cmd diff -x -U3 \
+cd src && svn revert en.lproj/DisplayPreferences.strings en.lproj/MainMenu.strings
+svn diff --diff-cmd diff -x -U3 \
   Base.lproj/DisplayPreferences.xib \
   NSGraphics_SKExtensions.h NSGraphics_SKExtensions.m \
   SKBasePDFView.m SKMainWindowController.m \
   SKDisplayPreferences.h SKDisplayPreferences.m \
   > ../patches/configurable-dark-mode-colors.diff
+svn diff --diff-cmd diff -x -U3 \
+  Base.lproj/MainMenu.xib SKApplicationController.h SKApplicationController.m \
+  > ../patches/invert-colors-menu-item.diff
 ```
 
 ## License

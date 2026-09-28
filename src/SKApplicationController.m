@@ -415,6 +415,11 @@ static inline NSDocument *presentationDocument(void) {
 
 - (IBAction)changeFindPaneState:(id)sender {}
 
+- (IBAction)toggleInvertColorsInDarkMode:(id)sender {
+    NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];
+    [sud setBool:[sud boolForKey:SKInvertColorsInDarkModeKey] == NO forKey:SKInvertColorsInDarkModeKey];
+}
+
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
     SEL action = [menuItem action];
     if (action == @selector(orderFrontLineInspector:)) {
@@ -434,6 +439,9 @@ static inline NSDocument *presentationDocument(void) {
     } else if (action == @selector(changeFindPaneState:)) {
         [menuItem setHidden:YES];
         return NO;
+    } else if (action == @selector(toggleInvertColorsInDarkMode:)) {
+        [menuItem setState:[[NSUserDefaults standardUserDefaults] boolForKey:SKInvertColorsInDarkModeKey] ? NSControlStateValueOn : NSControlStateValueOff];
+        return YES;
     }
     return YES;
 }
