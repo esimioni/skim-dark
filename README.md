@@ -84,6 +84,16 @@ Events, with Skim in front) takes the page from `#2C2C2C` to `#FFFFFF` and back,
 and the preference flips with it. The same key posted straight to the process
 with `CGEventPostToPid` changed nothing, so that is not a way to test it.
 
+The shortcut can be changed in System Settings > Keyboard > Keyboard Shortcuts >
+App Shortcuts, but one on Option without Command — Option-Shift-A, say — did
+nothing in Skim: the key is also a typed letter (Å), the focused view got it
+before the menus, and in the PDF view type select takes letters. `SKApplication`
+now offers such a key to the menus first, unless the focused view is editing
+text, where it still types. Only Option and Option-Shift on character keys;
+arrows, and anything with Command or Control, keep AppKit's path. Checked on
+2026-09-28 with Option-Shift-A set there: it toggles the page both ways, and in
+the Go To Page field it types `Å` and leaves the preference alone.
+
 ## Layout
 
 - `src/` — Skim trunk at the revision of the last `upstream:` commit, with the
@@ -107,8 +117,8 @@ with `CGEventPostToPid` changed nothing, so that is not a way to test it.
 The colors touch seven files: the color math (`NSGraphics_SKExtensions.h/.m`),
 the live update (`SKBasePDFView.m`, `SKMainWindowController.m`), and the
 preference pane (`SKDisplayPreferences.h/.m` plus
-`Base.lproj/DisplayPreferences.xib`). The keyboard toggle touches three more:
-`Base.lproj/MainMenu.xib` and `SKApplicationController.h/.m`. Only the Base
+`Base.lproj/DisplayPreferences.xib`). The keyboard toggle touches four more:
+`Base.lproj/MainMenu.xib`, `SKApplicationController.h/.m` and `SKApplication.m`. Only the Base
 localization gains the new labels; the other `*.lproj/*.strings` are untouched
 and fall back to English.
 
@@ -274,7 +284,7 @@ svn diff --diff-cmd diff -x -U3 \
   SKDisplayPreferences.h SKDisplayPreferences.m \
   > ../patches/configurable-dark-mode-colors.diff
 svn diff --diff-cmd diff -x -U3 \
-  Base.lproj/MainMenu.xib SKApplicationController.h SKApplicationController.m \
+  Base.lproj/MainMenu.xib SKApplicationController.h SKApplicationController.m SKApplication.m \
   > ../patches/invert-colors-menu-item.diff
 ```
 

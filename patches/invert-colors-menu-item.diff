@@ -53,3 +53,34 @@ Index: SKApplicationController.m
      }
      return YES;
  }
+Index: SKApplication.m
+===================================================================
+--- SKApplication.m	(revision 16409)
++++ SKApplication.m	(working copy)
+@@ -43,6 +43,13 @@
+ #import "NSString_SKExtensions.h"
+ #import "SKPreferenceController.h"
+ 
++// Option or Option-Shift on a key that types a character, not on a function key
++static inline BOOL SKIsOptionCharacterEvent(NSEvent *anEvent) {
++    if (([anEvent deviceIndependentModifierFlags] & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagFunction)) != NSEventModifierFlagOption)
++        return NO;
++    NSString *characters = [anEvent charactersIgnoringModifiers];
++    return [characters length] > 0 && ([characters characterAtIndex:0] < 0xF700 || [characters characterAtIndex:0] > 0xF8FF);
++}
+ 
+ @implementation SKApplication
+ 
+@@ -67,6 +74,12 @@
+         }
+     } else if ([anEvent type] == NSEventTypeTabletProximity) {
+         [NSEvent setCurrentPointingDeviceType:[anEvent isEnteringProximity] ? [anEvent pointingDeviceType] : NSPointingDeviceTypeUnknown];
++    } else if ([anEvent type] == NSEventTypeKeyDown && SKIsOptionCharacterEvent(anEvent) &&
++               [[[self keyWindow] firstResponder] isKindOfClass:[NSText class]] == NO &&
++               [[self mainMenu] performKeyEquivalent:anEvent]) {
++        // an Option shortcut without Command is also a typed letter, which the
++        // first responder would get before the menus; in a text field it still types
++        return;
+     }
+     [super sendEvent:anEvent];
+ }

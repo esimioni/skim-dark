@@ -15,7 +15,9 @@ unset the math reduces exactly to upstream, verified by tools/filtercheck.swift
 
 Also adds View > Invert Colors in Dark Mode (ctrl-cmd-I), which flips the same
 preference as the Display checkbox: upstream exposes it only there and to
-AppleScript, so there was no way to toggle it from the keyboard.
+AppleScript, so there was no way to toggle it from the keyboard. And it lets an
+App Shortcut on Option without Command (Option-Shift-A) reach the menus: such a
+key is also a typed letter (Å), the focused view got it first, and it never fired.
 
 Idempotent: running it twice is a no-op. Run after `svn up`.
 """
@@ -434,6 +436,36 @@ EDITS = [
      '        [menuItem setState:[[NSUserDefaults standardUserDefaults] boolForKey:SKInvertColorsInDarkModeKey] ? NSControlStateValueOn : NSControlStateValueOff];\n'
      '        return YES;\n'
      '    }\n'),
+
+    # An App Shortcut on Option without Command, like Option-Shift-A, is also a
+    # typed letter (Å on the US layouts). It went to the focused view, where the
+    # PDF view's type select takes letters, and never fired (2026-09-28). Outside
+    # text editing the menus now get such a key first. Arrow keys are left out:
+    # they are function keys, and upstream's Option-Up/Down keep their own path.
+    ("SKApplication.m",
+     '#import "SKPreferenceController.h"\n\n\n@implementation SKApplication\n',
+     '#import "SKPreferenceController.h"\n\n'
+     '// Option or Option-Shift on a key that types a character, not on a function key\n'
+     'static inline BOOL SKIsOptionCharacterEvent(NSEvent *anEvent) {\n'
+     '    if (([anEvent deviceIndependentModifierFlags] & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagFunction)) != NSEventModifierFlagOption)\n'
+     '        return NO;\n'
+     '    NSString *characters = [anEvent charactersIgnoringModifiers];\n'
+     '    return [characters length] > 0 && ([characters characterAtIndex:0] < 0xF700 || [characters characterAtIndex:0] > 0xF8FF);\n'
+     '}\n\n'
+     '@implementation SKApplication\n'),
+    ("SKApplication.m",
+     '        [NSEvent setCurrentPointingDeviceType:[anEvent isEnteringProximity] ? [anEvent pointingDeviceType] : NSPointingDeviceTypeUnknown];\n'
+     '    }\n'
+     '    [super sendEvent:anEvent];\n',
+     '        [NSEvent setCurrentPointingDeviceType:[anEvent isEnteringProximity] ? [anEvent pointingDeviceType] : NSPointingDeviceTypeUnknown];\n'
+     '    } else if ([anEvent type] == NSEventTypeKeyDown && SKIsOptionCharacterEvent(anEvent) &&\n'
+     '               [[[self keyWindow] firstResponder] isKindOfClass:[NSText class]] == NO &&\n'
+     '               [[self mainMenu] performKeyEquivalent:anEvent]) {\n'
+     '        // an Option shortcut without Command is also a typed letter, which the\n'
+     '        // first responder would get before the menus; in a text field it still types\n'
+     '        return;\n'
+     '    }\n'
+     '    [super sendEvent:anEvent];\n'),
 ]
 
 # Two phases on purpose. An anchor that upstream rewrote makes the whole run
