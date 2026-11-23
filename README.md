@@ -324,6 +324,8 @@ The same change is also proposed to [Skim+](https://github.com/speckofthecosmos/
 a patch-set distribution that carries features upstream declined:
 [PR #6](https://github.com/speckofthecosmos/skim-plus/pull/6) (2026-09-02), written over
 their patches 0001 and 0004 since their base, release 1.7.15, predates r16405.
+It was never reviewed, and Skim+ was archived by its owner on 2026-10-31, so it
+stays open and read-only for good.
 
 Skim lives on SourceForge under SVN, not GitHub, so a contribution is a ticket or
 a mail, never a pull request. **There is no Patches tracker** — `/p/skim-app/patches/`
