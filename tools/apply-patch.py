@@ -22,7 +22,8 @@ key is also a typed letter (Å), the focused view got it first, and it never fir
 And a Signature toolbar button (2026-11-23): it puts the signature image the
 preferences keep on the page as an image note, and Save writes image notes into
 the PDF — which needed SkimNotes to draw the note's image as a CGImage, or PDFKit
-saves it without the image (README, "Signature button").
+saves it without the image (README, "Signature button"). And notes drawn at the
+screen's resolution: PDFKit draws each annotation layer at one pixel per point.
 
 Idempotent: running it twice is a no-op. Run after `svn up`.
 """
@@ -732,6 +733,91 @@ EDITS = [
      '                [self presentError:revertError];\n'
      '        }\n'
      '        \n'),
+
+    # 4. Notes drawn at the screen's resolution. PDFKit (macOS 27) draws each
+    # annotation in a layer of its own, a PDFPageLayerAnnotationEffect, at one pixel
+    # per point, and magnifies that bitmap with the page: at 170% on a Retina screen
+    # a note is 3.4 times too coarse, pixelated and washed out, while the page text,
+    # in tiles at the screen's resolution (scale 3.4), stays sharp. Measured on a
+    # plain PDFView, so not Skim's doing (2026-11-23). Before the layer draws it gets
+    # the scale it is shown at; a zoom redraws the layers. Same pattern as Skim's
+    # other PDFKit replacements, and a no-op when the private class is gone.
+    ("PDFDocumentView_SKExtensions.h",
+     'extern void SKSwizzlePDFAccessibilityNodeAnnotationMethods();\n',
+     'extern void SKSwizzlePDFAccessibilityNodeAnnotationMethods();\n'
+     'extern void SKSwizzlePDFPageLayerAnnotationEffectMethods(void);\n'
+     'extern void SKRedisplayPDFPageLayerAnnotationEffects(CALayer * _Nullable layer);\n'),
+    ("PDFDocumentView_SKExtensions.m",
+     '    original_annotation_accessibilityPerformShowMenu = (BOOL (*)(id, SEL))SKReplaceInstanceMethodImplementation(PDFAccessibilityNodeAnnotationClass, @selector(accessibilityPerformShowMenu), (IMP)replacement_annotation_accessibilityPerformShowMenu);\n'
+     '}\n',
+     '    original_annotation_accessibilityPerformShowMenu = (BOOL (*)(id, SEL))SKReplaceInstanceMethodImplementation(PDFAccessibilityNodeAnnotationClass, @selector(accessibilityPerformShowMenu), (IMP)replacement_annotation_accessibilityPerformShowMenu);\n'
+     '}\n'
+     '\n'
+     '#pragma mark SKSwizzlePDFPageLayerAnnotationEffectMethods\n'
+     '\n'
+     '// PDFKit (macOS 27) draws each annotation in a layer of its own, a\n'
+     '// PDFPageLayerAnnotationEffect, at one pixel per point of the page, and magnifies\n'
+     '// that bitmap with the page: at 170% on a Retina screen a note comes out 3.4 times\n'
+     '// too coarse, while the page text, drawn in tiles at the screen\'s resolution, stays\n'
+     '// sharp. Before such a layer draws, it gets the scale it is shown at, capped so a\n'
+     '// page-sized note at a high zoom stays a sane bitmap.\n'
+     '#define SKMaxAnnotationEffectPixels (8.0 * 1024.0 * 1024.0)\n'
+     '\n'
+     'static Class PDFPageLayerAnnotationEffectClass = Nil;\n'
+     'static void (*original_annotationEffect_display)(id, SEL) = NULL;\n'
+     '\n'
+     'static void replacement_annotationEffect_display(id self, SEL _cmd) {\n'
+     '    CALayer *layer = self, *root = self, *viewLayer = nil;\n'
+     '    for (CALayer *ancestor = [layer superlayer]; ancestor; ancestor = [ancestor superlayer]) {\n'
+     '        if (viewLayer == nil && [[ancestor delegate] isKindOfClass:[NSView class]])\n'
+     '            viewLayer = ancestor;\n'
+     '        root = ancestor;\n'
+     '    }\n'
+     '    CGSize size = [layer bounds].size;\n'
+     '    if (viewLayer && size.width > 0.0 && size.height > 0.0) {\n'
+     '        CGRect shown = [layer convertRect:[layer bounds] toLayer:root];\n'
+     '        CGFloat scale = sqrt((CGRectGetWidth(shown) * CGRectGetHeight(shown)) / (size.width * size.height)) * [viewLayer contentsScale];\n'
+     '        scale = fmax(1.0, fmin(scale, sqrt(SKMaxAnnotationEffectPixels / (size.width * size.height))));\n'
+     '        if (fabs(scale - [layer contentsScale]) > 0.01)\n'
+     '            [layer setContentsScale:scale];\n'
+     '    }\n'
+     '    original_annotationEffect_display(self, _cmd);\n'
+     '}\n'
+     '\n'
+     'void SKSwizzlePDFPageLayerAnnotationEffectMethods(void) {\n'
+     '    PDFPageLayerAnnotationEffectClass = NSClassFromString(@"PDFPageLayerAnnotationEffect");\n'
+     '    if (PDFPageLayerAnnotationEffectClass && [PDFPageLayerAnnotationEffectClass isSubclassOfClass:[CALayer class]])\n'
+     '        original_annotationEffect_display = (void (*)(id, SEL))SKReplaceInstanceMethodImplementation(PDFPageLayerAnnotationEffectClass, @selector(display), (IMP)replacement_annotationEffect_display);\n'
+     '}\n'
+     '\n'
+     '// a zoom only transforms the layers, so they draw again to pick up the new scale\n'
+     'void SKRedisplayPDFPageLayerAnnotationEffects(CALayer *layer) {\n'
+     '    if (original_annotationEffect_display == NULL || layer == nil)\n'
+     '        return;\n'
+     '    if ([layer isKindOfClass:PDFPageLayerAnnotationEffectClass])\n'
+     '        [layer setNeedsDisplay];\n'
+     '    for (CALayer *sublayer in [[layer sublayers] copy])\n'
+     '        SKRedisplayPDFPageLayerAnnotationEffects(sublayer);\n'
+     '}\n'),
+    ("SKPDFView.m",
+     '    SKSwizzlePDFAccessibilityNodeAnnotationMethods();\n}\n',
+     '    SKSwizzlePDFAccessibilityNodeAnnotationMethods();\n'
+     '    SKSwizzlePDFPageLayerAnnotationEffectMethods();\n'
+     '}\n'),
+    ("SKPDFView.m",
+     '- (void)handleScaleChangedNotification:(NSNotification *)notification {\n'
+     '    [self resetPDFToolTipRects];\n'
+     '    [self updatePacer];\n'
+     '    if (editor)\n'
+     '        [self textNoteEditorSetFrame:editor];\n'
+     '}\n',
+     '- (void)handleScaleChangedNotification:(NSNotification *)notification {\n'
+     '    [self resetPDFToolTipRects];\n'
+     '    [self updatePacer];\n'
+     '    if (editor)\n'
+     '        [self textNoteEditorSetFrame:editor];\n'
+     '    SKRedisplayPDFPageLayerAnnotationEffects([self layer]);\n'
+     '}\n'),
 ]
 
 # Two phases on purpose. An anchor that upstream rewrote makes the whole run

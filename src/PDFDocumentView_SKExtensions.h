@@ -44,5 +44,7 @@ NS_ASSUME_NONNULL_BEGIN
 extern void SKSwizzlePDFDocumentViewMethods();
 extern void SKSwizzlePDFPageViewMethods();
 extern void SKSwizzlePDFAccessibilityNodeAnnotationMethods();
+extern void SKSwizzlePDFPageLayerAnnotationEffectMethods(void);
+extern void SKRedisplayPDFPageLayerAnnotationEffects(CALayer * _Nullable layer);
 
 NS_ASSUME_NONNULL_END

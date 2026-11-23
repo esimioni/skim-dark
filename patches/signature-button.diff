@@ -14,7 +14,15 @@ Index: SKPDFView.m
 ===================================================================
 --- SKPDFView.m	(revision 16409)
 +++ SKPDFView.m	(working copy)
-@@ -2639,6 +2639,34 @@
+@@ -271,6 +271,7 @@
+     SKSwizzlePDFDocumentViewMethods();
+     SKSwizzlePDFPageViewMethods();
+     SKSwizzlePDFAccessibilityNodeAnnotationMethods();
++    SKSwizzlePDFPageLayerAnnotationEffectMethods();
+ }
+ 
+ - (void)commonInitialization {
+@@ -2639,6 +2640,34 @@
      else if (annotationType != SKNoteTypeInk)
          // should never reach this for Ink
          [self addOtherAnnotationWithType:annotationType selection:selection point:point];
@@ -49,6 +57,14 @@ Index: SKPDFView.m
  }
  
  - (void)addAnnotationWithType:(SKNoteType)annotationType {
+@@ -3178,6 +3207,7 @@
+     [self updatePacer];
+     if (editor)
+         [self textNoteEditorSetFrame:editor];
++    SKRedisplayPDFPageLayerAnnotationEffects([self layer]);
+ }
+ 
+ - (void)handleUpdateTrackingAreasNotification:(NSNotification *)notification {
 Index: SKMainToolbarController.m
 ===================================================================
 --- SKMainToolbarController.m	(revision 16409)

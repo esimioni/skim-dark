@@ -129,6 +129,30 @@ System Events) makes the note in 0.44 s, with no permission prompt; Save leaves
 a Stamp whose appearance draws `/Im1`, poppler draws the signature inside the
 note's rectangle and nowhere else, and a link on the same page survives.
 
+### Notes at the screen's resolution
+
+The signature came out pixelated and washed out on screen, sharp in Preview.
+Not the image, and not Skim: on a plain `PDFView` the page text is drawn in
+`PDFPageLayerTile`s at the screen's resolution (`contentsScale` 3.4 at 170% on a
+Retina screen), while each annotation is drawn in a layer of its own, a
+`PDFPageLayerAnnotationEffect`, at `contentsScale` 1 — one pixel per point,
+magnified 3.4 times. Every note shows it, vector ones too (macOS 27; a dump of
+the layer tree of a bare `PDFView` showed both scales). Before such a layer
+draws, the fork now gives it the scale it is shown at — its on-screen
+magnification times the backing scale, capped at 8 Mpx for a page-sized note at
+a high zoom — and a zoom redraws the layers. It replaces `-display` on that
+private class, the way Skim already patches `PDFPageView` and
+`PDFDocumentView` (`PDFDocumentView_SKExtensions.m`), and does nothing when the
+class is gone. Checked on the installed build: at 170% the note just added and
+the Stamp after Save are as sharp as the image scaled down properly. After an
+update, look at a note at 170% or more: if it is soft again, PDFKit changed the
+layer.
+
+A signature image worth keeping light: PDFKit re-encodes it, so a 56 KB JPEG
+added 164 KB to the PDF and a 1.2 MB PNG 1.5 MB, while a PNG of one ink color
+with a smooth alpha (22 KB) added 28 KB — and, unlike the JPEG, it does not
+cover the line it is signed on.
+
 ## Layout
 
 - `src/` — Skim trunk at the revision of the last `upstream:` commit, with the
@@ -159,7 +183,9 @@ preference pane (`SKDisplayPreferences.h/.m` plus
 `Base.lproj/MainMenu.xib`, `SKApplicationController.h/.m` and `SKApplication.m`. The
 signature touches six more: the saved appearance (`SkimNotes/SKNPDFAnnotationNote.m`),
 the note (`SKPDFView.h/.m`), the button, built in code rather than in
-`MainToolbar.xib` (`SKMainToolbarController.m`), and Save (`SKMainDocument.h/.m`).
+`MainToolbar.xib` (`SKMainToolbarController.m`), and Save (`SKMainDocument.h/.m`);
+the notes at the screen's resolution add `PDFDocumentView_SKExtensions.h/.m` and two
+calls in `SKPDFView.m`.
 Only the Base localization gains the new labels; the other `*.lproj/*.strings` are untouched
 and fall back to English.
 
@@ -332,7 +358,12 @@ svn diff --diff-cmd diff -x -U3 SkimNotes/SKNPDFAnnotationNote.m \
 svn diff --diff-cmd diff -x -U3 \
   SKPDFView.h SKPDFView.m SKMainToolbarController.m SKMainDocument.h SKMainDocument.m \
   > ../patches/signature-button.diff
+svn diff --diff-cmd diff -x -U3 PDFDocumentView_SKExtensions.h PDFDocumentView_SKExtensions.m \
+  > ../patches/annotation-layer-scale.diff
 ```
+
+`SKPDFView.m` carries the two calls of the annotation-layer fix as well, so they
+travel in `signature-button.diff`.
 
 `image-note-appearance.diff` is the one a bug report upstream would carry: it
 stands alone, and without it the image of any image note is lost in the PDFs

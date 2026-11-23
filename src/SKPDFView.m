@@ -271,6 +271,7 @@ enum {
     SKSwizzlePDFDocumentViewMethods();
     SKSwizzlePDFPageViewMethods();
     SKSwizzlePDFAccessibilityNodeAnnotationMethods();
+    SKSwizzlePDFPageLayerAnnotationEffectMethods();
 }
 
 - (void)commonInitialization {
@@ -3206,6 +3207,7 @@ static inline CGFloat secondaryOutset(CGFloat x) {
     [self updatePacer];
     if (editor)
         [self textNoteEditorSetFrame:editor];
+    SKRedisplayPDFPageLayerAnnotationEffects([self layer]);
 }
 
 - (void)handleUpdateTrackingAreasNotification:(NSNotification *)notification {
