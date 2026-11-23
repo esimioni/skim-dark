@@ -149,9 +149,13 @@ update, look at a note at 170% or more: if it is soft again, PDFKit changed the
 layer.
 
 A signature image worth keeping light: PDFKit re-encodes it, so a 56 KB JPEG
-added 164 KB to the PDF and a 1.2 MB PNG 1.5 MB, while a PNG of one ink color
-with a smooth alpha (22 KB) added 28 KB — and, unlike the JPEG, it does not
-cover the line it is signed on.
+added 164 KB to the PDF and a 1.2 MB PNG 1.5 MB. Made transparent from the same
+JPEG by color-to-alpha (alpha = 1 − min(R,G,B), the color unmixed from white,
+rounded to steps of 8), a 48 KB PNG added 66 KB and keeps the pen's color within
+3/255 per channel over white — and, unlike the JPEG, it does not cover the line
+it is signed on. One ink color for the whole stroke (22 KB, +28 KB) is lighter
+but visibly darker: it paints the pale parts of a ballpoint line with the color
+of its core (35/255 off on average).
 
 ## Layout
 
