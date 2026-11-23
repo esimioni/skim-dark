@@ -112,6 +112,9 @@
 #define SKDocumentToolbarNotesPaneItemIdentifier @"SKDocumentToolbarNotesPaneItemIdentifier"
 #define SKDocumentToolbarSplitPDFItemIdentifier @"SKDocumentToolbarSplitPDFItemIdentifier"
 #define SKDocumentToolbarPrintItemIdentifier @"SKDocumentToolbarPrintItemIdentifier"
+#define SKDocumentToolbarSignatureItemIdentifier @"SKDocumentToolbarSignatureItemIdentifier"
+
+#define SKSignatureImageKey @"SKSignatureImage"
 
 #define SKLastTextNoteTypeKey   @"SKLastTextNoteType"
 #define SKLastShapeNoteTypeKey  @"SKLastShapeNoteType"
@@ -921,10 +924,66 @@ static char SKDefaultsObservationContext;
             [item setView:printButton];
             [item setMenuFormRepresentation:menuItem];
             
+        } else if ([identifier isEqualToString:SKDocumentToolbarSignatureItemIdentifier]) {
+            
+            menuItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Signature", @"Menu item title") action:@selector(addSignature:) target:self];
+            
+            [item setLabels:NSLocalizedString(@"Signature", @"Toolbar item label")];
+            [item setToolTip:NSLocalizedString(@"Add Signature (Option-click to choose its image)", @"Tool tip message")];
+            [item setView:[self makeSignatureButton]];
+            [item setMenuFormRepresentation:menuItem];
+            
         }
     }
     
     return item;
+}
+
+// Upstream's buttons come from MainToolbar.xib; this one is built here, in the
+// style of the Print button, so the fork leaves the nib alone.
+- (NSSegmentedControl *)makeSignatureButton {
+    NSImage *image = nil;
+    if (@available(macOS 11.0, *))
+        image = [NSImage imageWithSystemSymbolName:@"signature" accessibilityDescription:NSLocalizedString(@"Signature", @"Toolbar item label")];
+    NSSegmentedControl *button = image ? [NSSegmentedControl segmentedControlWithImages:@[image] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:@selector(addSignature:)] : [NSSegmentedControl segmentedControlWithLabels:@[NSLocalizedString(@"Sign", @"Toolbar item label")] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:@selector(addSignature:)];
+    [button setSegmentStyle:NSSegmentStyleTexturedSquare];
+    if (image)
+        [button setWidth:27.0 forSegment:0];
+    return button;
+}
+
+// Adds the signature image the preferences keep. It asks for one the first time,
+// and on Option-click. The preference holds the image itself, not a path: a
+// file read on every click of an image in ~/Documents made macOS stop the app
+// for a Documents-folder permission (2026-11-23); a file picked in the open
+// panel is readable without one.
+- (IBAction)addSignature:(id)sender {
+    NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:SKSignatureImageKey];
+    NSImage *image = nil;
+    if (data && ([NSEvent modifierFlags] & NSEventModifierFlagOption) == 0)
+        image = [[NSImage alloc] initWithData:data];
+    if (image) {
+        [mainController.pdfView addSignatureNoteWithImage:image];
+        return;
+    }
+    NSOpenPanel *openPanel = [NSOpenPanel openPanel];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [openPanel setAllowedFileTypes:[NSImage imageTypes]];
+#pragma clang diagnostic pop
+    [openPanel setMessage:NSLocalizedString(@"Choose the image of your signature. Skim remembers it; Option-click the Signature button to change it.", @"Open panel message")];
+    [openPanel beginSheetModalForWindow:[mainController window] completionHandler:^(NSModalResponse result){
+        if (result != NSModalResponseOK)
+            return;
+        NSData *chosenData = [NSData dataWithContentsOfURL:[openPanel URL]];
+        NSImage *chosen = chosenData ? [[NSImage alloc] initWithData:chosenData] : nil;
+        if (chosen == nil) {
+            NSBeep();
+            return;
+        }
+        [[NSUserDefaults standardUserDefaults] setObject:chosenData forKey:SKSignatureImageKey];
+        [self->mainController.pdfView addSignatureNoteWithImage:chosen];
+    }];
 }
 
 - (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSString *)itemIdent willBeInsertedIntoToolbar:(BOOL)willBeInserted {
@@ -953,7 +1012,8 @@ static char SKDefaultsObservationContext;
         SKDocumentToolbarPageNumberItemIdentifier,
         SKDocumentToolbarZoomInActualOutItemIdentifier,
         SKDocumentToolbarToolModeItemIdentifier,
-        SKDocumentToolbarNewNoteItemIdentifier];
+        SKDocumentToolbarNewNoteItemIdentifier,
+        SKDocumentToolbarSignatureItemIdentifier];
 }
 
 - (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar {
@@ -1002,6 +1062,7 @@ static char SKDefaultsObservationContext;
         SKDocumentToolbarLinesItemIdentifier,
         SKDocumentToolbarInfoItemIdentifier,
         SKDocumentToolbarPrintItemIdentifier,
+        SKDocumentToolbarSignatureItemIdentifier,
         NSToolbarFlexibleSpaceItemIdentifier,
         NSToolbarSpaceItemIdentifier];
 }
@@ -1050,6 +1111,8 @@ static char SKDefaultsObservationContext;
                [identifier isEqualToString:SKDocumentToolbarRotateLeftRightItemIdentifier] ||
                [identifier isEqualToString:SKDocumentToolbarCropItemIdentifier]) {
         return [mainController.pdfView.document isLocked] == NO;
+    } else if ([identifier isEqualToString:SKDocumentToolbarSignatureItemIdentifier]) {
+        return [mainController hasOverview] == NO && [mainController.pdfView canAddNotes];
     } else if ([identifier isEqualToString:NSToolbarPrintItemIdentifier]) {
         return [mainController.pdfView.document isLocked] == NO;
     }

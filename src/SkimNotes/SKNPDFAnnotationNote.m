@@ -238,14 +238,32 @@ static inline void drawIcon(CGContextRef context, NSRect bounds, PDFTextAnnotati
     return _textStorage;
 }
 
+// The largest bitmap of an image, or NULL when it has none (a PDF or EPS image).
+// PDFKit saves the appearance of a note from -drawWithBox:inContext:, and an
+// NSImage drawn there is saved as a form XObject without its resources, which
+// other readers draw as nothing; a CGImage is saved as an image XObject.
+static CGImageRef SKNBitmapImageForImage(NSImage *image) {
+    NSBitmapImageRep *best = nil;
+    for (NSImageRep *rep in [image representations]) {
+        if ([rep isKindOfClass:[NSBitmapImageRep class]] && [rep pixelsWide] * [rep pixelsHigh] > [best pixelsWide] * [best pixelsHigh])
+            best = (NSBitmapImageRep *)rep;
+    }
+    return [best CGImage];
+}
+
 - (void)drawWithBox:(PDFDisplayBox)box inContext:(CGContextRef)context {
     if ([self drawsImage] && [self hasAppearanceStream] == NO && [self image] != nil) {
         CGContextSaveGState(context);
         [[self page] transformContext:context forBox:box];
-        [NSGraphicsContext saveGraphicsState];
-        [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithCGContext:context flipped:NO]];
-        [[self image] drawInRect:[self bounds]];
-        [NSGraphicsContext restoreGraphicsState];
+        CGImageRef bitmap = SKNBitmapImageForImage([self image]);
+        if (bitmap) {
+            CGContextDrawImage(context, NSRectToCGRect([self bounds]), bitmap);
+        } else {
+            [NSGraphicsContext saveGraphicsState];
+            [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithCGContext:context flipped:NO]];
+            [[self image] drawInRect:[self bounds]];
+            [NSGraphicsContext restoreGraphicsState];
+        }
         CGContextRestoreGState(context);
 #if !defined(MAC_OS_X_VERSION_10_15) || MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_15
     } else if ([self hasAppearanceStream] == NO && floor(NSAppKitVersionNumber) <= SKNAppKitVersionNumber10_14 && floor(NSAppKitVersionNumber) >= SKNAppKitVersionNumber10_12) {

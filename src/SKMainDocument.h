@@ -71,6 +71,8 @@ extern NSNotificationName const SKSkimFileDidSaveNotification;
         unsigned int convertingNotes:1;
         unsigned int needsPasswordToConvert:1;
         unsigned int recentInfoNeedsUpdate:1;
+        unsigned int savingDocument:1;
+        unsigned int embeddedImageNotes:1;
     } mdFlags;
 }
 

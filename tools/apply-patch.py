@@ -19,6 +19,11 @@ AppleScript, so there was no way to toggle it from the keyboard. And it lets an
 App Shortcut on Option without Command (Option-Shift-A) reach the menus: such a
 key is also a typed letter (Å), the focused view got it first, and it never fired.
 
+And a Signature toolbar button (2026-11-23): it puts the signature image the
+preferences keep on the page as an image note, and Save writes image notes into
+the PDF — which needed SkimNotes to draw the note's image as a CGImage, or PDFKit
+saves it without the image (README, "Signature button").
+
 Idempotent: running it twice is a no-op. Run after `svn up`.
 """
 import sys, pathlib
@@ -466,6 +471,267 @@ EDITS = [
      '        return;\n'
      '    }\n'
      '    [super sendEvent:anEvent];\n'),
+
+    # ------------------------------------------------------------ signature
+    # The Signature toolbar button: one click puts the signature image the
+    # preferences keep (SKSignatureImage, the image data) on the visible page as an image
+    # note, selected, for the mouse to size and move; Save writes the image notes
+    # into the PDF itself. Asked for on 2026-11-23, to sign PDFs in Skim instead
+    # of PDFgear. Three parts, so each can be checked on its own.
+
+    # 1. SkimNotes draws the image of an image note as a CGImage. PDFKit builds the
+    # appearance stream it saves from this drawing, and an NSImage drawn here lands
+    # there as a form XObject (/Fm1) without its resources: the image vanished from
+    # every PDF Skim wrote, in any other reader — "PDF With Embedded Notes" gave a
+    # stamp that poppler draws as nothing (macOS 27). tools/imagenotecheck.sh.
+    ("SkimNotes/SKNPDFAnnotationNote.m",
+     '- (void)drawWithBox:(PDFDisplayBox)box inContext:(CGContextRef)context {\n'
+     '    if ([self drawsImage] && [self hasAppearanceStream] == NO && [self image] != nil) {\n'
+     '        CGContextSaveGState(context);\n'
+     '        [[self page] transformContext:context forBox:box];\n'
+     '        [NSGraphicsContext saveGraphicsState];\n'
+     '        [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithCGContext:context flipped:NO]];\n'
+     '        [[self image] drawInRect:[self bounds]];\n'
+     '        [NSGraphicsContext restoreGraphicsState];\n'
+     '        CGContextRestoreGState(context);\n',
+     '// The largest bitmap of an image, or NULL when it has none (a PDF or EPS image).\n'
+     '// PDFKit saves the appearance of a note from -drawWithBox:inContext:, and an\n'
+     '// NSImage drawn there is saved as a form XObject without its resources, which\n'
+     '// other readers draw as nothing; a CGImage is saved as an image XObject.\n'
+     'static CGImageRef SKNBitmapImageForImage(NSImage *image) {\n'
+     '    NSBitmapImageRep *best = nil;\n'
+     '    for (NSImageRep *rep in [image representations]) {\n'
+     '        if ([rep isKindOfClass:[NSBitmapImageRep class]] && [rep pixelsWide] * [rep pixelsHigh] > [best pixelsWide] * [best pixelsHigh])\n'
+     '            best = (NSBitmapImageRep *)rep;\n'
+     '    }\n'
+     '    return [best CGImage];\n'
+     '}\n'
+     '\n'
+     '- (void)drawWithBox:(PDFDisplayBox)box inContext:(CGContextRef)context {\n'
+     '    if ([self drawsImage] && [self hasAppearanceStream] == NO && [self image] != nil) {\n'
+     '        CGContextSaveGState(context);\n'
+     '        [[self page] transformContext:context forBox:box];\n'
+     '        CGImageRef bitmap = SKNBitmapImageForImage([self image]);\n'
+     '        if (bitmap) {\n'
+     '            CGContextDrawImage(context, NSRectToCGRect([self bounds]), bitmap);\n'
+     '        } else {\n'
+     '            [NSGraphicsContext saveGraphicsState];\n'
+     '            [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithCGContext:context flipped:NO]];\n'
+     '            [[self image] drawInRect:[self bounds]];\n'
+     '            [NSGraphicsContext restoreGraphicsState];\n'
+     '        }\n'
+     '        CGContextRestoreGState(context);\n'),
+
+    # 2. The button, and the note it adds.
+    ("SKPDFView.h",
+     '- (void)addAnnotationWithType:(SKNoteType)annotationType;\n',
+     '- (void)addAnnotationWithType:(SKNoteType)annotationType;\n'
+     '- (void)addSignatureNoteWithImage:(NSImage *)image;\n'),
+    ("SKPDFView.m",
+     '\n- (void)addAnnotationWithType:(SKNoteType)annotationType {\n',
+     '\n'
+     '// The note of the Signature toolbar button: the image note a pasted or dropped\n'
+     '// image makes (built twice upstream, in -pasteNote:plainText: and\n'
+     '// -performDragOperation:, which the fork leaves alone), in the middle of what is\n'
+     '// visible, selected. A signature image rarely carries a useful resolution, so it\n'
+     '// gets a fixed width rather than its natural size.\n'
+     '#define SKSignatureNoteWidth 150.0\n'
+     '\n'
+     '- (void)addSignatureNoteWithImage:(NSImage *)image {\n'
+     '    NSSize size = [image size];\n'
+     '    if ([self canAddNotes] == NO || size.width <= 0.0 || size.height <= 0.0) {\n'
+     '        NSBeep();\n'
+     '        return;\n'
+     '    }\n'
+     '    NSPoint center = SKCenterPoint([self unobscuredContentRect]);\n'
+     '    PDFPage *page = [self pageForPoint:center nearest:YES];\n'
+     '    center = [self convertPoint:center toPage:page];\n'
+     '    NSRect bounds = SKRectFromCenterAndSize(center, NSMakeSize(SKSignatureNoteWidth, SKSignatureNoteWidth * size.height / size.width));\n'
+     '    bounds.origin = SKIntegralPoint(bounds.origin);\n'
+     '    bounds = SKConstrainRect(bounds, [page boundsForBox:[self displayBox]]);\n'
+     '    PDFAnnotation *newAnnotation = [PDFAnnotation newSkimNoteWithBounds:bounds forType:SKNNoteString];\n'
+     '    [(SKNPDFAnnotationNote *)newAnnotation setImage:image];\n'
+     '    [(SKNPDFAnnotationNote *)newAnnotation setExtendedIconType:kSKNPDFTextAnnotationIconImage];\n'
+     '    if (IS_TEXT_OR_NOTE_TOOL == NO)\n'
+     '        [self setToolMode:SKToolModeText];\n'
+     '    [self addAnnotation:newAnnotation toPage:page select:YES];\n'
+     '    [[self window] makeFirstResponder:self];\n'
+     '}\n'
+     '\n'
+     '- (void)addAnnotationWithType:(SKNoteType)annotationType {\n'),
+    ("SKMainToolbarController.m",
+     '#define SKDocumentToolbarPrintItemIdentifier @"SKDocumentToolbarPrintItemIdentifier"\n',
+     '#define SKDocumentToolbarPrintItemIdentifier @"SKDocumentToolbarPrintItemIdentifier"\n'
+     '#define SKDocumentToolbarSignatureItemIdentifier @"SKDocumentToolbarSignatureItemIdentifier"\n'
+     '\n'
+     '#define SKSignatureImageKey @"SKSignatureImage"\n'),
+    ("SKMainToolbarController.m",
+     '            [item setView:printButton];\n'
+     '            [item setMenuFormRepresentation:menuItem];\n'
+     '            \n'
+     '        }\n',
+     '            [item setView:printButton];\n'
+     '            [item setMenuFormRepresentation:menuItem];\n'
+     '            \n'
+     '        } else if ([identifier isEqualToString:SKDocumentToolbarSignatureItemIdentifier]) {\n'
+     '            \n'
+     '            menuItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Signature", @"Menu item title") action:@selector(addSignature:) target:self];\n'
+     '            \n'
+     '            [item setLabels:NSLocalizedString(@"Signature", @"Toolbar item label")];\n'
+     '            [item setToolTip:NSLocalizedString(@"Add Signature (Option-click to choose its image)", @"Tool tip message")];\n'
+     '            [item setView:[self makeSignatureButton]];\n'
+     '            [item setMenuFormRepresentation:menuItem];\n'
+     '            \n'
+     '        }\n'),
+    ("SKMainToolbarController.m",
+     '\n- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSString *)itemIdent willBeInsertedIntoToolbar:(BOOL)willBeInserted {\n',
+     '\n'
+     '// Upstream\'s buttons come from MainToolbar.xib; this one is built here, in the\n'
+     '// style of the Print button, so the fork leaves the nib alone.\n'
+     '- (NSSegmentedControl *)makeSignatureButton {\n'
+     '    NSImage *image = nil;\n'
+     '    if (@available(macOS 11.0, *))\n'
+     '        image = [NSImage imageWithSystemSymbolName:@"signature" accessibilityDescription:NSLocalizedString(@"Signature", @"Toolbar item label")];\n'
+     '    NSSegmentedControl *button = image ? [NSSegmentedControl segmentedControlWithImages:@[image] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:@selector(addSignature:)] : [NSSegmentedControl segmentedControlWithLabels:@[NSLocalizedString(@"Sign", @"Toolbar item label")] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:@selector(addSignature:)];\n'
+     '    [button setSegmentStyle:NSSegmentStyleTexturedSquare];\n'
+     '    if (image)\n'
+     '        [button setWidth:27.0 forSegment:0];\n'
+     '    return button;\n'
+     '}\n'
+     '\n'
+     '// Adds the signature image the preferences keep. It asks for one the first time,\n'
+     '// and on Option-click. The preference holds the image itself, not a path: a\n'
+     '// file read on every click of an image in ~/Documents made macOS stop the app\n'
+     '// for a Documents-folder permission (2026-11-23); a file picked in the open\n'
+     '// panel is readable without one.\n'
+     '- (IBAction)addSignature:(id)sender {\n'
+     '    NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:SKSignatureImageKey];\n'
+     '    NSImage *image = nil;\n'
+     '    if (data && ([NSEvent modifierFlags] & NSEventModifierFlagOption) == 0)\n'
+     '        image = [[NSImage alloc] initWithData:data];\n'
+     '    if (image) {\n'
+     '        [mainController.pdfView addSignatureNoteWithImage:image];\n'
+     '        return;\n'
+     '    }\n'
+     '    NSOpenPanel *openPanel = [NSOpenPanel openPanel];\n'
+     '#pragma clang diagnostic push\n'
+     '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
+     '    [openPanel setAllowedFileTypes:[NSImage imageTypes]];\n'
+     '#pragma clang diagnostic pop\n'
+     '    [openPanel setMessage:NSLocalizedString(@"Choose the image of your signature. Skim remembers it; Option-click the Signature button to change it.", @"Open panel message")];\n'
+     '    [openPanel beginSheetModalForWindow:[mainController window] completionHandler:^(NSModalResponse result){\n'
+     '        if (result != NSModalResponseOK)\n'
+     '            return;\n'
+     '        NSData *chosenData = [NSData dataWithContentsOfURL:[openPanel URL]];\n'
+     '        NSImage *chosen = chosenData ? [[NSImage alloc] initWithData:chosenData] : nil;\n'
+     '        if (chosen == nil) {\n'
+     '            NSBeep();\n'
+     '            return;\n'
+     '        }\n'
+     '        [[NSUserDefaults standardUserDefaults] setObject:chosenData forKey:SKSignatureImageKey];\n'
+     '        [self->mainController.pdfView addSignatureNoteWithImage:chosen];\n'
+     '    }];\n'
+     '}\n'
+     '\n'
+     '- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSString *)itemIdent willBeInsertedIntoToolbar:(BOOL)willBeInserted {\n'),
+    ("SKMainToolbarController.m",
+     '        SKDocumentToolbarNewNoteItemIdentifier];\n}\n\n',
+     '        SKDocumentToolbarNewNoteItemIdentifier,\n'
+     '        SKDocumentToolbarSignatureItemIdentifier];\n}\n\n'),
+    ("SKMainToolbarController.m",
+     '        SKDocumentToolbarPrintItemIdentifier,\n        NSToolbarFlexibleSpaceItemIdentifier,\n',
+     '        SKDocumentToolbarPrintItemIdentifier,\n'
+     '        SKDocumentToolbarSignatureItemIdentifier,\n'
+     '        NSToolbarFlexibleSpaceItemIdentifier,\n'),
+    ("SKMainToolbarController.m",
+     '    } else if ([identifier isEqualToString:NSToolbarPrintItemIdentifier]) {\n',
+     '    } else if ([identifier isEqualToString:SKDocumentToolbarSignatureItemIdentifier]) {\n'
+     '        return [mainController hasOverview] == NO && [mainController.pdfView canAddNotes];\n'
+     '    } else if ([identifier isEqualToString:NSToolbarPrintItemIdentifier]) {\n'),
+
+    # 3. Save writes the image notes into the PDF. A Skim note lives in the file's
+    # extended attributes, which no other reader sees: a signature saved that way
+    # looks signed in Skim and nowhere else. Only when the document itself is
+    # saved (Save, Save As); exports keep their meaning. Afterwards the document
+    # reloads, so the page shows them as part of the file and the notes list
+    # drops them; File > Convert Notes turns them back into notes.
+    ("SKMainDocument.h",
+     '        unsigned int recentInfoNeedsUpdate:1;\n    } mdFlags;\n',
+     '        unsigned int recentInfoNeedsUpdate:1;\n'
+     '        unsigned int savingDocument:1;\n'
+     '        unsigned int embeddedImageNotes:1;\n'
+     '    } mdFlags;\n'),
+    ("SKMainDocument.m",
+     '\n- (NSArray *)SkimNoteProperties {\n',
+     '\n'
+     '// a note that draws an image on the page (skim-dark: Save writes these into the PDF)\n'
+     'static BOOL SKIsImageNoteProperties(NSDictionary *dict) {\n'
+     '    return [[dict objectForKey:SKNPDFAnnotationTypeKey] isEqualToString:SKNNoteString] &&\n'
+     '           [[dict objectForKey:SKNPDFAnnotationDrawsImageKey] boolValue] &&\n'
+     '           [dict objectForKey:SKNPDFAnnotationImageKey] != nil;\n'
+     '}\n'
+     '\n'
+     '- (NSArray *)SkimNoteProperties {\n'),
+    ("SKMainDocument.m",
+     '        array = mutableArray;\n    }\n    return  array;\n}\n',
+     '        array = mutableArray;\n'
+     '    }\n'
+     '    // during a save that wrote them into the PDF, the image notes are not notes anymore\n'
+     '    if (mdFlags.embeddedImageNotes)\n'
+     '        array = [array filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id dict, NSDictionary *bindings){ return SKIsImageNoteProperties(dict) == NO; }]];\n'
+     '    return  array;\n'
+     '}\n'
+     '\n'
+     '// The PDF data with the image notes written into it, as Stamp annotations that\n'
+     '// carry their own appearance; nil when there is none, or when the PDF does not\n'
+     '// allow notes. Added the way Skim adds notes when it opens a file.\n'
+     '- (NSData *)PDFDataWithImageNotes {\n'
+     '    NSArray *imageNotes = [[self SkimNoteProperties] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id dict, NSDictionary *bindings){ return SKIsImageNoteProperties(dict); }]];\n'
+     '    if ([imageNotes count] == 0)\n'
+     '        return nil;\n'
+     '    PDFDocument *pdfDoc = [[PDFDocument alloc] initWithData:pdfData];\n'
+     '    if (pdfDoc == nil || [pdfDoc isLocked] || [pdfDoc allowsNotes] == NO)\n'
+     '        return nil;\n'
+     '    [pdfDoc addSkimNotesWithProperties:imageNotes];\n'
+     '    return [pdfDoc dataRepresentation];\n'
+     '}\n'),
+    ("SKMainDocument.m",
+     '    } else if ([ws type:SKDocumentTypePDF conformsToType:typeName]) {\n'
+     '        if (mdFlags.exportOption == SKExportOptionWithEmbeddedNotes)\n'
+     '            didWrite = [[self pdfDocument] writeToURL:absoluteURL];\n'
+     '        else\n',
+     '    } else if ([ws type:SKDocumentTypePDF conformsToType:typeName]) {\n'
+     '        NSData *dataWithImageNotes = mdFlags.savingDocument ? [self PDFDataWithImageNotes] : nil;\n'
+     '        if (mdFlags.exportOption == SKExportOptionWithEmbeddedNotes) {\n'
+     '            didWrite = [[self pdfDocument] writeToURL:absoluteURL];\n'
+     '        } else if (dataWithImageNotes) {\n'
+     '            didWrite = [dataWithImageNotes writeToURL:absoluteURL options:0 error:&error];\n'
+     '            mdFlags.embeddedImageNotes = didWrite;\n'
+     '        } else\n'),
+    ("SKMainDocument.m",
+     '    \n    BOOL didSave = [super writeSafelyToURL:absoluteURL ofType:typeName forSaveOperation:saveOperation error:outError];\n',
+     '    \n'
+     '    // saving the document itself writes its image notes into the PDF\n'
+     '    mdFlags.embeddedImageNotes = 0;\n'
+     '    mdFlags.savingDocument = attachNotes && (saveOperation == NSSaveOperation || saveOperation == NSSaveAsOperation);\n'
+     '    BOOL didSave = [super writeSafelyToURL:absoluteURL ofType:typeName forSaveOperation:saveOperation error:outError];\n'
+     '    mdFlags.savingDocument = 0;\n'),
+    ("SKMainDocument.m",
+     '        // reset this for the next save, in case this was set in the save script command\n'
+     '        mdFlags.exportOption = SKExportOptionDefault;\n'
+     '        \n',
+     '        // reset this for the next save, in case this was set in the save script command\n'
+     '        mdFlags.exportOption = SKExportOptionDefault;\n'
+     '        \n'
+     '        // the image notes are in the PDF now: reload it, so the page shows them as\n'
+     '        // part of the file and the notes list drops them\n'
+     '        if (mdFlags.embeddedImageNotes) {\n'
+     '            mdFlags.embeddedImageNotes = 0;\n'
+     '            NSError *revertError = nil;\n'
+     '            if (errorOrNil == nil && [self revertToContentsOfURL:[self fileURL] ofType:[self fileType] error:&revertError] == NO && revertError)\n'
+     '                [self presentError:revertError];\n'
+     '        }\n'
+     '        \n'),
 ]
 
 # Two phases on purpose. An anchor that upstream rewrote makes the whole run

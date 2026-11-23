@@ -473,6 +473,13 @@ enum {
     [super runModalSavePanelForSaveOperation:saveOperation delegate:self didSaveSelector:@selector(document:didSaveUsingPanel:contextInfo:) contextInfo:(void *)CFBridgingRetain(invocation)];
 }
 
+// a note that draws an image on the page (skim-dark: Save writes these into the PDF)
+static BOOL SKIsImageNoteProperties(NSDictionary *dict) {
+    return [[dict objectForKey:SKNPDFAnnotationTypeKey] isEqualToString:SKNNoteString] &&
+           [[dict objectForKey:SKNPDFAnnotationDrawsImageKey] boolValue] &&
+           [dict objectForKey:SKNPDFAnnotationImageKey] != nil;
+}
+
 - (NSArray *)SkimNoteProperties {
     NSArray *array = [super SkimNoteProperties];
     NSArray *widgetProperties = [[self primaryWindowController] widgetProperties];
@@ -496,7 +503,24 @@ enum {
         }
         array = mutableArray;
     }
+    // during a save that wrote them into the PDF, the image notes are not notes anymore
+    if (mdFlags.embeddedImageNotes)
+        array = [array filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id dict, NSDictionary *bindings){ return SKIsImageNoteProperties(dict) == NO; }]];
     return  array;
+}
+
+// The PDF data with the image notes written into it, as Stamp annotations that
+// carry their own appearance; nil when there is none, or when the PDF does not
+// allow notes. Added the way Skim adds notes when it opens a file.
+- (NSData *)PDFDataWithImageNotes {
+    NSArray *imageNotes = [[self SkimNoteProperties] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id dict, NSDictionary *bindings){ return SKIsImageNoteProperties(dict); }]];
+    if ([imageNotes count] == 0)
+        return nil;
+    PDFDocument *pdfDoc = [[PDFDocument alloc] initWithData:pdfData];
+    if (pdfDoc == nil || [pdfDoc isLocked] || [pdfDoc allowsNotes] == NO)
+        return nil;
+    [pdfDoc addSkimNotesWithProperties:imageNotes];
+    return [pdfDoc dataRepresentation];
 }
 
 - (BOOL)attachNotesAtURL:(NSURL *)absoluteURL {
@@ -603,6 +627,15 @@ enum {
         // reset this for the next save, in case this was set in the save script command
         mdFlags.exportOption = SKExportOptionDefault;
         
+        // the image notes are in the PDF now: reload it, so the page shows them as
+        // part of the file and the notes list drops them
+        if (mdFlags.embeddedImageNotes) {
+            mdFlags.embeddedImageNotes = 0;
+            NSError *revertError = nil;
+            if (errorOrNil == nil && [self revertToContentsOfURL:[self fileURL] ofType:[self fileType] error:&revertError] == NO && revertError)
+                [self presentError:revertError];
+        }
+        
         if (completionHandler)
             completionHandler(errorOrNil);
         
@@ -649,7 +682,11 @@ enum {
         }];
     }
     
+    // saving the document itself writes its image notes into the PDF
+    mdFlags.embeddedImageNotes = 0;
+    mdFlags.savingDocument = attachNotes && (saveOperation == NSSaveOperation || saveOperation == NSSaveAsOperation);
     BOOL didSave = [super writeSafelyToURL:absoluteURL ofType:typeName forSaveOperation:saveOperation error:outError];
+    mdFlags.savingDocument = 0;
     
     if (didSave) {
         if (attachNotes) {
@@ -757,9 +794,13 @@ enum {
         else
             error = [NSError documentErrorWithCode:SKWriteFileError localizedDescription:NSLocalizedString(@"Unable to write notes as text", @"Error description")];
     } else if ([ws type:SKDocumentTypePDF conformsToType:typeName]) {
-        if (mdFlags.exportOption == SKExportOptionWithEmbeddedNotes)
+        NSData *dataWithImageNotes = mdFlags.savingDocument ? [self PDFDataWithImageNotes] : nil;
+        if (mdFlags.exportOption == SKExportOptionWithEmbeddedNotes) {
             didWrite = [[self pdfDocument] writeToURL:absoluteURL];
-        else
+        } else if (dataWithImageNotes) {
+            didWrite = [dataWithImageNotes writeToURL:absoluteURL options:0 error:&error];
+            mdFlags.embeddedImageNotes = didWrite;
+        } else
             didWrite = [pdfData writeToURL:absoluteURL options:0 error:&error];
     } else if ([ws type:SKDocumentTypeEncapsulatedPostScript conformsToType:typeName] || 
                [ws type:SKDocumentTypeDVI conformsToType:typeName] || 

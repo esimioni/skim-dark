@@ -2641,6 +2641,34 @@ static inline CGFloat secondaryOutset(CGFloat x) {
         [self addOtherAnnotationWithType:annotationType selection:selection point:point];
 }
 
+// The note of the Signature toolbar button: the image note a pasted or dropped
+// image makes (built twice upstream, in -pasteNote:plainText: and
+// -performDragOperation:, which the fork leaves alone), in the middle of what is
+// visible, selected. A signature image rarely carries a useful resolution, so it
+// gets a fixed width rather than its natural size.
+#define SKSignatureNoteWidth 150.0
+
+- (void)addSignatureNoteWithImage:(NSImage *)image {
+    NSSize size = [image size];
+    if ([self canAddNotes] == NO || size.width <= 0.0 || size.height <= 0.0) {
+        NSBeep();
+        return;
+    }
+    NSPoint center = SKCenterPoint([self unobscuredContentRect]);
+    PDFPage *page = [self pageForPoint:center nearest:YES];
+    center = [self convertPoint:center toPage:page];
+    NSRect bounds = SKRectFromCenterAndSize(center, NSMakeSize(SKSignatureNoteWidth, SKSignatureNoteWidth * size.height / size.width));
+    bounds.origin = SKIntegralPoint(bounds.origin);
+    bounds = SKConstrainRect(bounds, [page boundsForBox:[self displayBox]]);
+    PDFAnnotation *newAnnotation = [PDFAnnotation newSkimNoteWithBounds:bounds forType:SKNNoteString];
+    [(SKNPDFAnnotationNote *)newAnnotation setImage:image];
+    [(SKNPDFAnnotationNote *)newAnnotation setExtendedIconType:kSKNPDFTextAnnotationIconImage];
+    if (IS_TEXT_OR_NOTE_TOOL == NO)
+        [self setToolMode:SKToolModeText];
+    [self addAnnotation:newAnnotation toPage:page select:YES];
+    [[self window] makeFirstResponder:self];
+}
+
 - (void)addAnnotationWithType:(SKNoteType)annotationType {
     if ([self canSelectNote] == NO) {
         // should never happen

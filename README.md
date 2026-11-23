@@ -3,7 +3,8 @@
 A fork of [Skim](https://skim-app.sourceforge.io/) (BSD 3-clause) that makes
 the *text* end of the dark-mode inversion configurable, and puts both ends in
 the preferences window; it also toggles the inversion itself from the keyboard
-(`⌃⌘I`). The colors were proposed upstream and declined, so it is maintained
+(`⌃⌘I`), and signs PDFs: a toolbar button puts a signature on the page, and Save
+writes it into the PDF. The colors were proposed upstream and declined, so it is maintained
 here: [github.com/esimioni/skim-dark](https://github.com/esimioni/skim-dark).
 
 ## The problem
@@ -94,6 +95,40 @@ arrows, and anything with Command or Control, keep AppKit's path. Checked on
 2026-09-28 with Option-Shift-A set there: it toggles the page both ways, and in
 the Go To Page field it types `Å` and leaves the preference alone.
 
+## Signature button
+
+**Signature**, at the end of the toolbar, puts the image of a signature on the
+page: an image note in the middle of what is visible, 150 points wide, selected,
+for the mouse to size (Shift on a corner keeps the proportions) and move, to
+another page too. The image lives in the preferences as the image itself
+(`SKSignatureImage`, the file's bytes): the first click asks for it, and so does
+an Option-click, to change it. Not a path, because reading a file in
+`~/Documents` on a click made macOS stop the app for a Documents-folder
+permission; a file picked in the open panel needs none. There is no menu item:
+the button is the one way in.
+
+**Save writes the image notes into the PDF.** A Skim note lives in the file's
+extended attributes, which no other reader sees, so a signature saved that way
+looks signed in Skim and nowhere else. On Save and Save As (exports keep their
+meaning) each image note goes into the PDF data as a Stamp annotation with its
+own appearance, the document reloads from the file, and the notes list no
+longer has it; File > Convert Notes turns it back into a note. PDFKit writes the
+whole file, as Preview does when it signs.
+
+That needed a fix underneath, in SkimNotes: an image note draws its image as a
+`CGImage`. PDFKit builds the appearance stream it saves from the note's
+drawing, and an `NSImage` drawn there was saved as a form XObject (`/Fm1`)
+without its resources: the image vanished from every PDF Skim wrote, "PDF With
+Embedded Notes" included, in any other reader — poppler says *"XObject 'Fm1' is
+unknown"* and draws nothing (macOS 27). `tools/imagenotecheck.sh` writes an image
+note through SkimNotes and checks the appearance in the written file: against
+the framework of the r16409 build it fails, against the fix it passes.
+
+Checked on the installed build on 2026-11-23: a click on the button (through
+System Events) makes the note in 0.44 s, with no permission prompt; Save leaves
+a Stamp whose appearance draws `/Im1`, poppler draws the signature inside the
+note's rectangle and nowhere else, and a link on the same page survives.
+
 ## Layout
 
 - `src/` — Skim trunk at the revision of the last `upstream:` commit, with the
@@ -106,6 +141,9 @@ the Go To Page field it types `Å` and leaves the preference alone.
   numerically rather than by eye
 - `tools/renderpage.swift` — renders a PDF page through the same filter chain
   and writes a PNG: how a page looks, produced and measured without a screen capture
+- `tools/imagenotecheck.sh` (+ `.m`) — writes an image note through SkimNotes and
+  checks that the saved appearance really draws the image; give it
+  `/Applications/Skim.app/Contents/Frameworks` to check an installed app
 - `tools/postbuild.py` — strips Sparkle's `SUFeedURL` from the built bundle and
   re-signs it; run after every build (see below)
 - `tools/install.sh` — quits Skim, swaps `/Applications/Skim.app`, reopens it
@@ -118,12 +156,15 @@ The colors touch seven files: the color math (`NSGraphics_SKExtensions.h/.m`),
 the live update (`SKBasePDFView.m`, `SKMainWindowController.m`), and the
 preference pane (`SKDisplayPreferences.h/.m` plus
 `Base.lproj/DisplayPreferences.xib`). The keyboard toggle touches four more:
-`Base.lproj/MainMenu.xib`, `SKApplicationController.h/.m` and `SKApplication.m`. Only the Base
-localization gains the new labels; the other `*.lproj/*.strings` are untouched
+`Base.lproj/MainMenu.xib`, `SKApplicationController.h/.m` and `SKApplication.m`. The
+signature touches six more: the saved appearance (`SkimNotes/SKNPDFAnnotationNote.m`),
+the note (`SKPDFView.h/.m`), the button, built in code rather than in
+`MainToolbar.xib` (`SKMainToolbarController.m`), and Save (`SKMainDocument.h/.m`).
+Only the Base localization gains the new labels; the other `*.lproj/*.strings` are untouched
 and fall back to English.
 
-⚠️ A build rewrites `en.lproj/DisplayPreferences.strings` and
-`en.lproj/MainMenu.strings` in the source tree. They are build artifacts, not
+⚠️ A build rewrites `en.lproj/DisplayPreferences.strings`,
+`en.lproj/MainMenu.strings` and `en.lproj/Localizable.strings` in the source tree. They are build artifacts, not
 part of the patch — `svn revert` them before regenerating the diffs.
 
 ## Build
@@ -276,7 +317,7 @@ tree, which would drag in the build workaround and the strings artifacts — and
 force real unified diff, since svn's built-in one ignores `-U`:
 
 ```sh
-cd src && svn revert en.lproj/DisplayPreferences.strings en.lproj/MainMenu.strings
+cd src && svn revert en.lproj/DisplayPreferences.strings en.lproj/MainMenu.strings en.lproj/Localizable.strings
 svn diff --diff-cmd diff -x -U3 \
   Base.lproj/DisplayPreferences.xib \
   NSGraphics_SKExtensions.h NSGraphics_SKExtensions.m \
@@ -286,7 +327,16 @@ svn diff --diff-cmd diff -x -U3 \
 svn diff --diff-cmd diff -x -U3 \
   Base.lproj/MainMenu.xib SKApplicationController.h SKApplicationController.m SKApplication.m \
   > ../patches/invert-colors-menu-item.diff
+svn diff --diff-cmd diff -x -U3 SkimNotes/SKNPDFAnnotationNote.m \
+  > ../patches/image-note-appearance.diff
+svn diff --diff-cmd diff -x -U3 \
+  SKPDFView.h SKPDFView.m SKMainToolbarController.m SKMainDocument.h SKMainDocument.m \
+  > ../patches/signature-button.diff
 ```
+
+`image-note-appearance.diff` is the one a bug report upstream would carry: it
+stands alone, and without it the image of any image note is lost in the PDFs
+Skim writes.
 
 ## License
 
