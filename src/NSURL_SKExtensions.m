@@ -116,14 +116,17 @@
     return uniqueFileURL;
 }
 
-- (NSURL *)signedFileURL {
+- (NSURL *)signedFileURLInFolder:(NSURL *)folderURL {
     NSString *baseName = [[self lastPathComponent] stringByDeletingPathExtension];
-    if ([baseName length] == 0 || [baseName rangeOfString:@"-signed(-[0-9]+)?$" options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound)
+    if ([baseName length] == 0)
         return nil;
-    NSString *fileName = [baseName stringByAppendingString:@"-signed"];
-    if ([[self pathExtension] length] > 0)
-        fileName = [fileName stringByAppendingPathExtension:[self pathExtension]];
-    return [[[self URLByDeletingLastPathComponent] URLByAppendingPathComponent:fileName isDirectory:NO] uniqueFileURL];
+    if ([baseName rangeOfString:@"-signed(-[0-9]+)?$" options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location == NSNotFound)
+        baseName = [baseName stringByAppendingString:@"-signed"];
+    NSString *fileName = [[self pathExtension] length] > 0 ? [baseName stringByAppendingPathExtension:[self pathExtension]] : baseName;
+    NSURL *signedURL = [folderURL URLByAppendingPathComponent:fileName isDirectory:NO];
+    if ([[[signedURL URLByResolvingSymlinksInPath] path] isEqualToString:[[self URLByResolvingSymlinksInPath] path]])
+        return nil;
+    return [signedURL uniqueFileURL];
 }
 
 - (BOOL)isTrashedFileURL {

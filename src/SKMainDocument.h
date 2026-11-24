@@ -82,7 +82,7 @@ extern NSNotificationName const SKSkimFileDidSaveNotification;
 
 // skim-dark: the Signature button added a signature. The next Save, while an image
 // note is still there, keeps the file as it came and writes the signed document
-// beside it as "<name>-signed", where the document then lives.
+// to Downloads as "<name>-signed", where the document then lives.
 - (void)didAddSignature;
 
 @property (nonatomic, nullable, readonly) SKMainWindowController *primaryWindowController;

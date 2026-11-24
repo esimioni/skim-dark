@@ -1,11 +1,14 @@
 #!/bin/bash
 # Sign and send, on the installed Skim and through its window, with two test PDFs
 # of its own in a scratch folder (nothing else that is open is touched):
-#   A. Signature button, then File > Save  ->  "<name>-signed.pdf" beside the file,
+#   A. Signature button, then File > Save  ->  "<name>-signed.pdf" in ~/Downloads,
 #      the signature in it as a Stamp, the original as it was, the window on the new file
 #   B. Signature button, then a real mouse drag (CGEvent) of the File button, with
 #      Skim in the back, into a window of tools/dragtest.swift  ->  saved to -signed
 #      first and that file dropped, offered as a copy, and Skim still in the back
+# The two -signed files it makes in ~/Downloads are deleted at the end; it will not
+# start when a file of either name is already there. The first save of Skim into
+# Downloads may meet macOS's question for the Downloads folder: answer it, run again.
 #
 #   tools/sendcheck.sh           # now, if nobody touched the Mac for 30 s
 #   tools/sendcheck.sh --wait    # waits up to 30 min for that first
@@ -19,6 +22,7 @@ set -u
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(cd "$(mktemp -d -t sendcheck)" && pwd -P)   # the /private path Skim reports
 A="sendcheck A.pdf"; B="sendcheck B.pdf"
+dl="$HOME/Downloads"; signedA="$dl/sendcheck A-signed.pdf"; signedB="$dl/sendcheck B-signed.pdf"
 failures=0
 
 idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
@@ -35,9 +39,15 @@ docstate() { osascript -e "tell application \"Skim\" to get {modified, count of 
 sha() { shasum -a 256 "$1" | cut -c1-16; }
 check() { if eval "$2"; then echo "ok    $1"; else echo "FAIL  $1"; failures=$((failures + 1)); fi; }
 prev=""
+made=0   # set once the -signed names are known to be free, so cleanup only removes ours
+was_running=-1  # unknown until read after --wait, right before the first action (Skim may be quit while waiting); cleanup quits Skim only on a measured 0
 cleanup() {
-  osascript -e 'tell application "Skim" to close (every document whose name begins with "sendcheck ") saving no' >/dev/null 2>&1
+  if pgrep -xq Skim; then
+    osascript -e 'tell application "Skim" to close (every document whose name begins with "sendcheck ") saving no' >/dev/null 2>&1
+    [ $was_running -eq 0 ] && [ "$(osascript -e 'tell application "Skim" to count documents' 2>/dev/null)" = "0" ] && osascript -e 'tell application "Skim" to quit' >/dev/null 2>&1
+  fi
   [ -n "$prev" ] && open -b "$prev"
+  [ $made -eq 1 ] && rm -f "$signedA" "$signedB"
   rm -rf "$work"
 }
 abort() { echo "ABORT: $1"; cleanup; exit 3; }
@@ -54,7 +64,11 @@ if [[ "${1:-}" == "--wait" ]]; then
   for _ in $(seq 900); do [ "$(idle)" -ge 32 ] && break; sleep 2; done
 fi
 need_idle start
-[ "$(sheets)" = "0" ] || abort "há uma folha aberta no Skim"
+# before any `tell application "Skim"`, which launches it
+was_running=0; pgrep -xq Skim && was_running=1
+[ $was_running -eq 0 ] || [ "$(sheets)" = "0" ] || abort "há uma folha aberta no Skim"
+[ -e "$signedA" ] || [ -e "$signedB" ] && abort "já existe um sendcheck *-signed.pdf em Downloads"
+made=1
 prev=$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true')
 for f in "$A" "$B"; do
   printf 'Signing test\n\nA document to sign and send.\n' | cupsfilter -i text/plain -m application/pdf - > "$work/$f" 2>/dev/null
@@ -72,8 +86,8 @@ need_idle A3
 [[ "$(front)" == "Skim" && "$(frontwin)" == "$A"* ]] || abort "a frente mudou antes do Save"
 osascript -e 'tell application "System Events" to tell process "Skim" to click menu item "Save" of menu "File" of menu bar item "File" of menu bar 1' >/dev/null
 sleep 1.5
-check "Save writes \"sendcheck A-signed.pdf\" beside it" '[ -f "$work/sendcheck A-signed.pdf" ]'
-check "with the signature as a Stamp" 'LC_ALL=C grep -q -a "/Subtype */Stamp" "$work/sendcheck A-signed.pdf"'
+check "Save writes \"sendcheck A-signed.pdf\" to Downloads" '[ -f "$signedA" ]'
+check "with the signature as a Stamp" 'LC_ALL=C grep -q -a "/Subtype */Stamp" "$signedA"'
 check "and leaves the original as it was" '[ "$(sha "$work/$A")" = "$shaA" ]'
 check "the window is on the signed file, saved" '[[ "$(docstate "sendcheck A-signed.pdf")" == false,* ]]'
 
@@ -97,10 +111,10 @@ EOF
 need_idle B3
 "$work/dragtest" "${xy%,*}" "${xy#*,}" "$B" "$work/drag.log" >/dev/null
 sleep 1
-check "the drag drops \"sendcheck B-signed.pdf\", saved first" 'grep -q "^dropped: $work/sendcheck B-signed.pdf size=[1-9]" "$work/drag.log"'
+check "the drag drops \"sendcheck B-signed.pdf\" of Downloads, saved first" 'grep -qF "dropped: $signedB size=" "$work/drag.log" && ! grep -qF "dropped: $signedB size=0" "$work/drag.log"'
 check "offered as a copy, never a move" 'grep -q "^entered: source mask=5$" "$work/drag.log"'
 check "Skim stays in the back" 'grep "^front at drop: " "$work/drag.log" | grep -qv "Skim$"'
-check "with the signature as a Stamp" 'LC_ALL=C grep -q -a "/Subtype */Stamp" "$work/sendcheck B-signed.pdf"'
+check "with the signature as a Stamp" 'LC_ALL=C grep -q -a "/Subtype */Stamp" "$signedB"'
 check "and the original as it was" '[ "$(sha "$work/$B")" = "$shaB" ]'
 
 cleanup

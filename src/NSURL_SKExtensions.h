@@ -51,10 +51,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)lastPathComponentReplacingPathExtension:(NSString *)ext;
 
 @property (nonatomic, readonly) NSURL *uniqueFileURL;
-// skim-dark: where a document signed with the Signature button is saved, beside
-// this file: "<name>-signed.<extension>", made unique like uniqueFileURL; nil when
-// the name already ends in -signed (or -signed-2), and the document saves in place.
-@property (nonatomic, nullable, readonly) NSURL *signedFileURL;
+// skim-dark: where a document signed with the Signature button is saved, in the
+// folder given: "<name>-signed.<extension>", or the name as it is when it already
+// ends in -signed (or -signed-2), made unique like uniqueFileURL; nil when that is
+// this file itself, which then saves in place.
+- (nullable NSURL *)signedFileURLInFolder:(NSURL *)folderURL;
 
 @property (nonatomic, readonly, getter=isTrashedFileURL) BOOL trashedFileURL;
 

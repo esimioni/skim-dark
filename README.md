@@ -4,7 +4,7 @@ A fork of [Skim](https://skim-app.sourceforge.io/) (BSD 3-clause) that makes
 the *text* end of the dark-mode inversion configurable, and puts both ends in
 the preferences window; it also toggles the inversion itself from the keyboard
 (`⌃⌘I`), and signs PDFs: a toolbar button puts a signature on the page, and Save
-writes it into the PDF, beside the original as `<name>-signed`; a File button
+writes it into the PDF, as `<name>-signed` in Downloads; a File button
 hands the file to another app by dragging. The colors were proposed upstream and declined, so it is maintained
 here: [github.com/esimioni/skim-dark](https://github.com/esimioni/skim-dark).
 
@@ -130,18 +130,26 @@ System Events) makes the note in 0.44 s, with no permission prompt; Save leaves
 a Stamp whose appearance draws `/Im1`, poppler draws the signature inside the
 note's rectangle and nowhere else, and a link on the same page survives.
 
-**The signed document goes beside the original.** The first Save after the
-Signature button does not replace the file: it writes `<name>-signed.<ext>` in
-the same folder (`-signed-1`, `-signed-2` when that name is taken, Skim's own
+**The signed document goes to Downloads.** The first Save after the Signature
+button does not replace the file: it writes `<name>-signed.<ext>` to the
+Downloads folder (`-signed-1`, `-signed-2` when that name is taken, Skim's own
 `uniqueFileURL`), and the window moves to the new file, so later saves replace
-that one; the file as it came stays as it came. It is a Save As underneath, in
+that one; the file as it came stays as it came. Not beside the file: a PDF
+opened from WhatsApp lives in WhatsApp's container, where macOS lets Skim save
+over the file it was handed but not create one next to it — *"could not be saved
+as … You don't have permission"*, with `kTCCServiceSystemPolicyAppDataDetailed`
+in the log — and a copy left there would be lost in a folder nobody sorts;
+Downloads gets sorted. It is a Save As underneath, in
 `-saveDocumentWithDelegate:...`, so Save and the "save changes?" alert of a close
-both take it. A name that already ends in `-signed` saves in place, and so does
-a Save after the signature was undone: it needs an image note to write. The rule
-for the name is `NSURL`'s `signedFileURL`; `tools/signednamecheck.sh` compiles the
-real `NSURL_SKExtensions.m` and checks nine names (taken, already signed,
-numbered, upper case, a name that only contains `-signed`, no extension, dots),
-and fails against each of four broken versions of the rule.
+both take it. A name that already ends in `-signed` keeps its name, and a signed
+file already in Downloads saves in place; so does a Save after the signature was
+undone: it needs an image note to write. The rule is `NSURL`'s
+`signedFileURLInFolder:`; `tools/signednamecheck.sh` compiles the real
+`NSURL_SKExtensions.m` and checks ten cases, a scratch folder standing in for
+Downloads and another for WhatsApp's (taken, twice, signed and in place, signed
+elsewhere, not yet signed in Downloads, upper case, a name that only contains
+`-signed`, no extension, dots), and fails against each of six broken versions of
+the rule. macOS may ask once whether Skim can use the Downloads folder.
 
 ### Notes at the screen's resolution
 
@@ -182,7 +190,7 @@ PDF opened from WhatsApp lives in WhatsApp's container
 nobody goes looking for it to send it back; the button is that file.
 
 What is dropped is the file on disk. With unsaved changes the drag saves first,
-as Save does (a signature goes to `-signed`), and drags the saved file; a save
+as Save does (a signature goes to Downloads as `-signed`), and drags the saved file; a save
 that does not finish at once (a panel, an error) leaves no drag. Out of Skim the
 drag offers a copy, never a move, so the open file stays put; inside Skim it
 offers nothing. Like Finder it drags from a window in the back without bringing
@@ -190,13 +198,15 @@ Skim forward (`acceptsFirstMouse:`, `shouldDelayWindowOrderingForEvent:`,
 `preventWindowOrdering`), so Skim stays behind the app it drops into. A plain
 click does nothing.
 
-Checked on the installed build on 2026-11-24 with `tools/sendcheck.sh`, 11 of 11:
-Signature + Save gave `sendcheck A-signed.pdf` with the Stamp and left the
-original byte for byte; Signature + a real mouse drag of File, with Skim behind
-another app, saved to `sendcheck B-signed.pdf` first and dropped that file,
-offered as a copy (mask 5, copy + generic), Skim still in the back at the drop.
-The save inside the mouse-down finished before the drag began, so a drag of an
-edited document goes on in one gesture.
+Checked on the installed build on 2026-11-24 with `tools/sendcheck.sh`, 11 of 11,
+the copies landing in `~/Downloads`: Signature + Save gave `sendcheck A-signed.pdf`
+there with the Stamp and left the original byte for byte; Signature + a real
+mouse drag of File, with Skim behind another app, saved to `sendcheck B-signed.pdf`
+first and dropped that file, offered as a copy (mask 5, copy + generic), Skim
+still in the back at the drop. The save inside the mouse-down finished before the
+drag began, so a drag of an edited document goes on in one gesture. The same
+evening, the first real use: a PDF opened from WhatsApp, signed, saved to
+`~/Downloads/<name>-signed.pdf` and sent back.
 
 ## Layout
 

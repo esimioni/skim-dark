@@ -98,7 +98,7 @@ Index: SKMainToolbarController.m
 +// another app (a chat, a mail, a folder), like the proxy icon of a window title,
 +// which Skim does not show: it hides the title under the toolbar. What is dropped
 +// is the file on disk, so unsaved changes are saved first, as Save does (a
-+// signature goes to "<name>-signed"); a save that does not finish at once (a
++// signature goes to Downloads, as "<name>-signed"); a save that does not finish at once (a
 +// panel, an error) leaves no drag. A copy, never a move: the file stays put. It
 +// drags from a window in the back too, the way Finder does, and Skim stays behind
 +// the app it is dragged into.
@@ -283,7 +283,7 @@ Index: SKMainDocument.h
  
 +// skim-dark: the Signature button added a signature. The next Save, while an image
 +// note is still there, keeps the file as it came and writes the signed document
-+// beside it as "<name>-signed", where the document then lives.
++// to Downloads as "<name>-signed", where the document then lives.
 +- (void)didAddSignature;
 +
  @property (nonatomic, nullable, readonly) SKMainWindowController *primaryWindowController;
@@ -337,7 +337,7 @@ Index: SKMainDocument.m
  }
  
  - (BOOL)attachNotesAtURL:(NSURL *)absoluteURL {
-@@ -567,6 +596,26 @@
+@@ -567,6 +596,34 @@
      }
      
      return writeNotesOK;
@@ -348,15 +348,23 @@ Index: SKMainDocument.m
 +}
 +
 +// skim-dark: the first Save after the Signature button leaves the file as it came
-+// and writes the signed document beside it, as "<name>-signed": a Save As, so the
-+// window moves to the new file and later saves replace that one. Only while an
-+// image note is there to write into the PDF; with the signature undone, or a name
-+// that already says signed, it is the plain Save. Save and the "save changes?"
-+// alert of a close both come here; a Save or Save As that goes through ends it.
++// and writes the signed document to the Downloads folder, as "<name>-signed": a
++// Save As, so the window moves to the new file and later saves replace that one.
++// Downloads, not beside the file: a PDF opened from WhatsApp lives in WhatsApp's
++// container, where macOS lets Skim save over the file it was handed but not make
++// one next to it ("You don't have permission", kTCCServiceSystemPolicyAppDataDetailed
++// in the log, 2026-11-24), and a copy there would stay lost; Downloads gets sorted.
++// Only while an image note is there to write into the PDF; with the signature
++// undone, or for a signed file already in Downloads, it is the plain Save. Save
++// and the "save changes?" alert of a close both come here; a Save or Save As that
++// goes through ends it.
 +- (void)saveDocumentWithDelegate:(id)delegate didSaveSelector:(SEL)didSaveSelector contextInfo:(void *)contextInfo {
 +    NSURL *signedURL = nil;
-+    if (mdFlags.savesSignedCopy && [self fileURL] && [[self imageNoteProperties] count] > 0)
-+        signedURL = [[self fileURL] signedFileURL];
++    if (mdFlags.savesSignedCopy && [self fileURL] && [[self imageNoteProperties] count] > 0) {
++        NSURL *downloadsURL = [[NSFileManager defaultManager] URLForDirectory:NSDownloadsDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:NULL];
++        if (downloadsURL)
++            signedURL = [[self fileURL] signedFileURLInFolder:downloadsURL];
++    }
 +    if (signedURL)
 +        [self saveToURL:signedURL ofType:[self fileType] forSaveOperation:NSSaveAsOperation delegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
 +    else
@@ -364,7 +372,7 @@ Index: SKMainDocument.m
  }
  
  // Prepare for saving and use callback to save notes and cleanup
-@@ -603,6 +652,19 @@
+@@ -603,6 +660,19 @@
          // reset this for the next save, in case this was set in the save script command
          mdFlags.exportOption = SKExportOptionDefault;
          
@@ -384,7 +392,7 @@ Index: SKMainDocument.m
          if (completionHandler)
              completionHandler(errorOrNil);
          
-@@ -649,7 +711,11 @@
+@@ -649,7 +719,11 @@
          }];
      }
      
@@ -396,7 +404,7 @@ Index: SKMainDocument.m
      
      if (didSave) {
          if (attachNotes) {
-@@ -757,9 +823,13 @@
+@@ -757,9 +831,13 @@
          else
              error = [NSError documentErrorWithCode:SKWriteFileError localizedDescription:NSLocalizedString(@"Unable to write notes as text", @"Error description")];
      } else if ([ws type:SKDocumentTypePDF conformsToType:typeName]) {
@@ -416,14 +424,15 @@ Index: NSURL_SKExtensions.h
 ===================================================================
 --- NSURL_SKExtensions.h	(revision 16409)
 +++ NSURL_SKExtensions.h	(working copy)
-@@ -51,6 +51,10 @@
+@@ -51,6 +51,11 @@
  - (NSString *)lastPathComponentReplacingPathExtension:(NSString *)ext;
  
  @property (nonatomic, readonly) NSURL *uniqueFileURL;
-+// skim-dark: where a document signed with the Signature button is saved, beside
-+// this file: "<name>-signed.<extension>", made unique like uniqueFileURL; nil when
-+// the name already ends in -signed (or -signed-2), and the document saves in place.
-+@property (nonatomic, nullable, readonly) NSURL *signedFileURL;
++// skim-dark: where a document signed with the Signature button is saved, in the
++// folder given: "<name>-signed.<extension>", or the name as it is when it already
++// ends in -signed (or -signed-2), made unique like uniqueFileURL; nil when that is
++// this file itself, which then saves in place.
++- (nullable NSURL *)signedFileURLInFolder:(NSURL *)folderURL;
  
  @property (nonatomic, readonly, getter=isTrashedFileURL) BOOL trashedFileURL;
  
@@ -431,20 +440,23 @@ Index: NSURL_SKExtensions.m
 ===================================================================
 --- NSURL_SKExtensions.m	(revision 16409)
 +++ NSURL_SKExtensions.m	(working copy)
-@@ -114,6 +114,16 @@
-         uniqueFileURL = [baseURL URLByAppendingPathComponent:[[baseName stringByAppendingFormat:@"-%ld", (long)++i] stringByAppendingPathExtension:extension] isDirectory:isDirectory];
-     }
+@@ -116,6 +116,19 @@
      return uniqueFileURL;
-+}
-+
-+- (NSURL *)signedFileURL {
-+    NSString *baseName = [[self lastPathComponent] stringByDeletingPathExtension];
-+    if ([baseName length] == 0 || [baseName rangeOfString:@"-signed(-[0-9]+)?$" options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound)
-+        return nil;
-+    NSString *fileName = [baseName stringByAppendingString:@"-signed"];
-+    if ([[self pathExtension] length] > 0)
-+        fileName = [fileName stringByAppendingPathExtension:[self pathExtension]];
-+    return [[[self URLByDeletingLastPathComponent] URLByAppendingPathComponent:fileName isDirectory:NO] uniqueFileURL];
  }
  
++- (NSURL *)signedFileURLInFolder:(NSURL *)folderURL {
++    NSString *baseName = [[self lastPathComponent] stringByDeletingPathExtension];
++    if ([baseName length] == 0)
++        return nil;
++    if ([baseName rangeOfString:@"-signed(-[0-9]+)?$" options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location == NSNotFound)
++        baseName = [baseName stringByAppendingString:@"-signed"];
++    NSString *fileName = [[self pathExtension] length] > 0 ? [baseName stringByAppendingPathExtension:[self pathExtension]] : baseName;
++    NSURL *signedURL = [folderURL URLByAppendingPathComponent:fileName isDirectory:NO];
++    if ([[[signedURL URLByResolvingSymlinksInPath] path] isEqualToString:[[self URLByResolvingSymlinksInPath] path]])
++        return nil;
++    return [signedURL uniqueFileURL];
++}
++
  - (BOOL)isTrashedFileURL {
+     NSCParameterAssert([self isFileURL]);    
+     NSURLRelationship relationship;

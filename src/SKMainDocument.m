@@ -603,15 +603,23 @@ static BOOL SKIsImageNoteProperties(NSDictionary *dict) {
 }
 
 // skim-dark: the first Save after the Signature button leaves the file as it came
-// and writes the signed document beside it, as "<name>-signed": a Save As, so the
-// window moves to the new file and later saves replace that one. Only while an
-// image note is there to write into the PDF; with the signature undone, or a name
-// that already says signed, it is the plain Save. Save and the "save changes?"
-// alert of a close both come here; a Save or Save As that goes through ends it.
+// and writes the signed document to the Downloads folder, as "<name>-signed": a
+// Save As, so the window moves to the new file and later saves replace that one.
+// Downloads, not beside the file: a PDF opened from WhatsApp lives in WhatsApp's
+// container, where macOS lets Skim save over the file it was handed but not make
+// one next to it ("You don't have permission", kTCCServiceSystemPolicyAppDataDetailed
+// in the log, 2026-11-24), and a copy there would stay lost; Downloads gets sorted.
+// Only while an image note is there to write into the PDF; with the signature
+// undone, or for a signed file already in Downloads, it is the plain Save. Save
+// and the "save changes?" alert of a close both come here; a Save or Save As that
+// goes through ends it.
 - (void)saveDocumentWithDelegate:(id)delegate didSaveSelector:(SEL)didSaveSelector contextInfo:(void *)contextInfo {
     NSURL *signedURL = nil;
-    if (mdFlags.savesSignedCopy && [self fileURL] && [[self imageNoteProperties] count] > 0)
-        signedURL = [[self fileURL] signedFileURL];
+    if (mdFlags.savesSignedCopy && [self fileURL] && [[self imageNoteProperties] count] > 0) {
+        NSURL *downloadsURL = [[NSFileManager defaultManager] URLForDirectory:NSDownloadsDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:NULL];
+        if (downloadsURL)
+            signedURL = [[self fileURL] signedFileURLInFolder:downloadsURL];
+    }
     if (signedURL)
         [self saveToURL:signedURL ofType:[self fileType] forSaveOperation:NSSaveAsOperation delegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
     else

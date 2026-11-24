@@ -1,10 +1,11 @@
 // signednamecheck — where does a signed document go?
 //
-// Checks NSURL's signedFileURL (src/NSURL_SKExtensions.m, compiled in by
-// tools/signednamecheck.sh): the first Save after the Signature button writes the
-// document beside its file as "<name>-signed.<extension>", made unique with -1,
-// -2 when that name is taken, and saves in place (nil) when the name already
-// says it is signed. Run in an empty scratch folder. Exit 0 = PASS.
+// Checks NSURL's signedFileURLInFolder: (src/NSURL_SKExtensions.m, compiled in by
+// tools/signednamecheck.sh). The first Save after the Signature button writes the
+// document to Downloads as "<name>-signed.<extension>" (the name as it is when it
+// already says signed), made unique with -1, -2 when taken; nil, a save in place,
+// when that is the file itself. Here a scratch folder stands in for Downloads and
+// another for the folder a PDF was opened from (WhatsApp's container). Exit 0 = PASS.
 #import <Cocoa/Cocoa.h>
 #import "NSURL_SKExtensions.h"
 
@@ -19,11 +20,15 @@ static void expect(NSString *what, NSString *got, NSString *want) {
     failures += ok ? 0 : 1;
 }
 
-// the signed name of a file in the folder, or a marker when it lands in another folder
-static NSString *signedName(NSString *folder, NSString *name) {
-    NSURL *url = [NSURL fileURLWithPath:[folder stringByAppendingPathComponent:name] isDirectory:NO];
-    NSURL *signedURL = [url signedFileURL];
-    if (signedURL && [[[signedURL URLByDeletingLastPathComponent] path] isEqualToString:folder] == NO)
+static NSString *resolved(NSString *path) {
+    return [[[NSURL fileURLWithPath:path] URLByResolvingSymlinksInPath] path];
+}
+
+// the signed name of a file of the folder `from`, or a marker when it does not land in `downloads`
+static NSString *signedName(NSString *from, NSString *name, NSString *downloads) {
+    NSURL *url = [NSURL fileURLWithPath:[from stringByAppendingPathComponent:name] isDirectory:NO];
+    NSURL *signedURL = [url signedFileURLInFolder:[NSURL fileURLWithPath:downloads isDirectory:YES]];
+    if (signedURL && [resolved([[signedURL URLByDeletingLastPathComponent] path]) isEqualToString:resolved(downloads)] == NO)
         return [@"another folder: " stringByAppendingString:[signedURL path]];
     return [signedURL lastPathComponent];
 }
@@ -35,25 +40,31 @@ int main(int argc, const char *argv[]) {
             return 2;
         }
         // absolute, or every answer would look like it landed in another folder
-        NSString *folder = [[[NSURL fileURLWithPath:[NSString stringWithUTF8String:argv[1]] isDirectory:YES] URLByStandardizingPath] path];
-        void (^touch)(NSString *) = ^(NSString *name){
-            [[NSFileManager defaultManager] createFileAtPath:[folder stringByAppendingPathComponent:name] contents:[NSData data] attributes:nil];
+        NSString *root = [[[NSURL fileURLWithPath:[NSString stringWithUTF8String:argv[1]] isDirectory:YES] URLByStandardizingPath] path];
+        NSString *whatsapp = [root stringByAppendingPathComponent:@"whatsapp"];
+        NSString *downloads = [root stringByAppendingPathComponent:@"Downloads"];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        [fm createDirectoryAtPath:whatsapp withIntermediateDirectories:YES attributes:nil error:NULL];
+        [fm createDirectoryAtPath:downloads withIntermediateDirectories:YES attributes:nil error:NULL];
+        void (^touch)(NSString *, NSString *) = ^(NSString *folder, NSString *name){
+            [fm createFileAtPath:[folder stringByAppendingPathComponent:name] contents:[NSData data] attributes:nil];
         };
         NSString *received = @"Minute declaring dividend1.pdf";
-        touch(received);
+        touch(whatsapp, received);
 
-        expect(@"beside the file", signedName(folder, received), @"Minute declaring dividend1-signed.pdf");
-        touch(@"Minute declaring dividend1-signed.pdf");
-        expect(@"name taken", signedName(folder, received), @"Minute declaring dividend1-signed-1.pdf");
-        touch(@"Minute declaring dividend1-signed-1.pdf");
-        expect(@"two names taken", signedName(folder, received), @"Minute declaring dividend1-signed-2.pdf");
+        expect(@"to Downloads, -signed", signedName(whatsapp, received, downloads), @"Minute declaring dividend1-signed.pdf");
+        touch(downloads, @"Minute declaring dividend1-signed.pdf");
+        expect(@"name taken in Downloads", signedName(whatsapp, received, downloads), @"Minute declaring dividend1-signed-1.pdf");
+        touch(downloads, @"Minute declaring dividend1-signed-1.pdf");
+        expect(@"two names taken", signedName(whatsapp, received, downloads), @"Minute declaring dividend1-signed-2.pdf");
 
-        expect(@"already signed", signedName(folder, @"Minute declaring dividend1-signed.pdf"), nil);
-        expect(@"already signed, numbered", signedName(folder, @"Minute declaring dividend1-signed-1.pdf"), nil);
-        expect(@"already signed, upper case", signedName(folder, @"Contract-SIGNED.pdf"), nil);
-        expect(@"a name that only contains -signed", signedName(folder, @"Form-signedness.pdf"), @"Form-signedness-signed.pdf");
-        expect(@"no extension", signedName(folder, @"contract"), @"contract-signed");
-        expect(@"dots in the name", signedName(folder, @"v1.2 terms.pdf"), @"v1.2 terms-signed.pdf");
+        expect(@"signed, already in Downloads: in place", signedName(downloads, @"Minute declaring dividend1-signed.pdf", downloads), nil);
+        expect(@"signed and numbered, in Downloads: in place", signedName(downloads, @"Minute declaring dividend1-signed-1.pdf", downloads), nil);
+        expect(@"signed elsewhere: to Downloads, name kept", signedName(whatsapp, @"Contract-SIGNED.pdf", downloads), @"Contract-SIGNED.pdf");
+        expect(@"in Downloads, not signed yet", signedName(downloads, @"Report.pdf", downloads), @"Report-signed.pdf");
+        expect(@"a name that only contains -signed", signedName(whatsapp, @"Form-signedness.pdf", downloads), @"Form-signedness-signed.pdf");
+        expect(@"no extension", signedName(whatsapp, @"contract", downloads), @"contract-signed");
+        expect(@"dots in the name", signedName(whatsapp, @"v1.2 terms.pdf", downloads), @"v1.2 terms-signed.pdf");
     }
     printf("%s\n", failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;

@@ -154,7 +154,7 @@ static char SKDefaultsObservationContext;
 // another app (a chat, a mail, a folder), like the proxy icon of a window title,
 // which Skim does not show: it hides the title under the toolbar. What is dropped
 // is the file on disk, so unsaved changes are saved first, as Save does (a
-// signature goes to "<name>-signed"); a save that does not finish at once (a
+// signature goes to Downloads, as "<name>-signed"); a save that does not finish at once (a
 // panel, an error) leaves no drag. A copy, never a move: the file stays put. It
 // drags from a window in the back too, the way Finder does, and Skim stays behind
 // the app it is dragged into.

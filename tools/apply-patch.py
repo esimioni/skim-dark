@@ -26,7 +26,7 @@ saves it without the image (README, "Signature button"). And notes drawn at the
 screen's resolution: PDFKit draws each annotation layer at one pixel per point.
 
 And to send it on (2026-11-24): the first Save after the Signature button keeps
-the file as it came and writes "<name>-signed" beside it; and a File toolbar
+the file as it came and writes "<name>-signed" to Downloads; and a File toolbar
 button, the document's file to drag into another app (README, "File button").
 
 Idempotent: running it twice is a no-op. Run after `svn up`.
@@ -262,7 +262,7 @@ FILE_DRAG_BUTTON = '''
 // another app (a chat, a mail, a folder), like the proxy icon of a window title,
 // which Skim does not show: it hides the title under the toolbar. What is dropped
 // is the file on disk, so unsaved changes are saved first, as Save does (a
-// signature goes to "<name>-signed"); a save that does not finish at once (a
+// signature goes to Downloads, as "<name>-signed"); a save that does not finish at once (a
 // panel, an error) leaves no drag. A copy, never a move: the file stays put. It
 // drags from a window in the back too, the way Finder does, and Skim stays behind
 // the app it is dragged into.
@@ -318,15 +318,23 @@ SIGNED_SAVE = '''- (void)didAddSignature {
 }
 
 // skim-dark: the first Save after the Signature button leaves the file as it came
-// and writes the signed document beside it, as "<name>-signed": a Save As, so the
-// window moves to the new file and later saves replace that one. Only while an
-// image note is there to write into the PDF; with the signature undone, or a name
-// that already says signed, it is the plain Save. Save and the "save changes?"
-// alert of a close both come here; a Save or Save As that goes through ends it.
+// and writes the signed document to the Downloads folder, as "<name>-signed": a
+// Save As, so the window moves to the new file and later saves replace that one.
+// Downloads, not beside the file: a PDF opened from WhatsApp lives in WhatsApp's
+// container, where macOS lets Skim save over the file it was handed but not make
+// one next to it ("You don't have permission", kTCCServiceSystemPolicyAppDataDetailed
+// in the log, 2026-11-24), and a copy there would stay lost; Downloads gets sorted.
+// Only while an image note is there to write into the PDF; with the signature
+// undone, or for a signed file already in Downloads, it is the plain Save. Save
+// and the "save changes?" alert of a close both come here; a Save or Save As that
+// goes through ends it.
 - (void)saveDocumentWithDelegate:(id)delegate didSaveSelector:(SEL)didSaveSelector contextInfo:(void *)contextInfo {
     NSURL *signedURL = nil;
-    if (mdFlags.savesSignedCopy && [self fileURL] && [[self imageNoteProperties] count] > 0)
-        signedURL = [[self fileURL] signedFileURL];
+    if (mdFlags.savesSignedCopy && [self fileURL] && [[self imageNoteProperties] count] > 0) {
+        NSURL *downloadsURL = [[NSFileManager defaultManager] URLForDirectory:NSDownloadsDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:NULL];
+        if (downloadsURL)
+            signedURL = [[self fileURL] signedFileURLInFolder:downloadsURL];
+    }
     if (signedURL)
         [self saveToURL:signedURL ofType:[self fileType] forSaveOperation:NSSaveAsOperation delegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
     else
@@ -336,14 +344,17 @@ SIGNED_SAVE = '''- (void)didAddSignature {
 // Prepare for saving and use callback to save notes and cleanup
 '''
 
-SIGNED_FILE_URL = '''- (NSURL *)signedFileURL {
+SIGNED_FILE_URL = '''- (NSURL *)signedFileURLInFolder:(NSURL *)folderURL {
     NSString *baseName = [[self lastPathComponent] stringByDeletingPathExtension];
-    if ([baseName length] == 0 || [baseName rangeOfString:@"-signed(-[0-9]+)?$" options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound)
+    if ([baseName length] == 0)
         return nil;
-    NSString *fileName = [baseName stringByAppendingString:@"-signed"];
-    if ([[self pathExtension] length] > 0)
-        fileName = [fileName stringByAppendingPathExtension:[self pathExtension]];
-    return [[[self URLByDeletingLastPathComponent] URLByAppendingPathComponent:fileName isDirectory:NO] uniqueFileURL];
+    if ([baseName rangeOfString:@"-signed(-[0-9]+)?$" options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location == NSNotFound)
+        baseName = [baseName stringByAppendingString:@"-signed"];
+    NSString *fileName = [[self pathExtension] length] > 0 ? [baseName stringByAppendingPathExtension:[self pathExtension]] : baseName;
+    NSURL *signedURL = [folderURL URLByAppendingPathComponent:fileName isDirectory:NO];
+    if ([[[signedURL URLByResolvingSymlinksInPath] path] isEqualToString:[[self URLByResolvingSymlinksInPath] path]])
+        return nil;
+    return [signedURL uniqueFileURL];
 }
 
 - (BOOL)isTrashedFileURL {
@@ -773,7 +784,7 @@ EDITS = [
     # on, its file had to be found on disk, in the folder of the app it came from
     # (WhatsApp keeps it in its container's tmp). The File button is the file, to
     # drag into the other app; the first Save after the Signature button writes it
-    # beside the original, as "<name>-signed" (NSURL's signedFileURL,
+    # to Downloads, as "<name>-signed" (NSURL's signedFileURLInFolder:,
     # tools/signednamecheck.sh), and leaves the original as it came.
     ("SKMainToolbarController.m",
      '#import "SKApplicationController.h"\n',
@@ -786,16 +797,17 @@ EDITS = [
      '\n'
      '// skim-dark: the Signature button added a signature. The next Save, while an image\n'
      '// note is still there, keeps the file as it came and writes the signed document\n'
-     '// beside it as "<name>-signed", where the document then lives.\n'
+     '// to Downloads as "<name>-signed", where the document then lives.\n'
      '- (void)didAddSignature;\n'),
     ("SKMainDocument.m", '// Prepare for saving and use callback to save notes and cleanup\n', SIGNED_SAVE),
     ("NSURL_SKExtensions.h",
      '@property (nonatomic, readonly) NSURL *uniqueFileURL;\n',
      '@property (nonatomic, readonly) NSURL *uniqueFileURL;\n'
-     '// skim-dark: where a document signed with the Signature button is saved, beside\n'
-     '// this file: "<name>-signed.<extension>", made unique like uniqueFileURL; nil when\n'
-     '// the name already ends in -signed (or -signed-2), and the document saves in place.\n'
-     '@property (nonatomic, nullable, readonly) NSURL *signedFileURL;\n'),
+     '// skim-dark: where a document signed with the Signature button is saved, in the\n'
+     '// folder given: "<name>-signed.<extension>", or the name as it is when it already\n'
+     '// ends in -signed (or -signed-2), made unique like uniqueFileURL; nil when that is\n'
+     '// this file itself, which then saves in place.\n'
+     '- (nullable NSURL *)signedFileURLInFolder:(NSURL *)folderURL;\n'),
     ("NSURL_SKExtensions.m", '- (BOOL)isTrashedFileURL {\n', SIGNED_FILE_URL),
 
     # 3. Save writes the image notes into the PDF. A Skim note lives in the file's
