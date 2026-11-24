@@ -25,6 +25,10 @@ the PDF — which needed SkimNotes to draw the note's image as a CGImage, or PDF
 saves it without the image (README, "Signature button"). And notes drawn at the
 screen's resolution: PDFKit draws each annotation layer at one pixel per point.
 
+And to send it on (2026-11-24): the first Save after the Signature button keeps
+the file as it came and writes "<name>-signed" beside it; and a File toolbar
+button, the document's file to drag into another app (README, "File button").
+
 Idempotent: running it twice is a no-op. Run after `svn up`.
 """
 import sys, pathlib
@@ -250,6 +254,100 @@ XIB_CONSTRAINTS = '''                <constraint firstItem="26" firstAttribute="
                 <constraint firstItem="Dtx-Cw-el2" firstAttribute="bottom" secondItem="Dbg-Cw-el1" secondAttribute="bottom" id="Dtx-Cn-bt1"/>
                 <constraint firstItem="Dtx-Cw-el2" firstAttribute="width" secondItem="Dbg-Cw-el1" secondAttribute="width" id="Dtx-Cn-wd1"/>
                 <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="Dtx-Cw-el2" secondAttribute="trailing" constant="20" symbolic="YES" id="Dtx-Cn-tr1"/>'''
+
+# --------------------------------------------------- signed copy, File button
+
+FILE_DRAG_BUTTON = '''
+// skim-dark: the File toolbar button. It is the document's file, to drag into
+// another app (a chat, a mail, a folder), like the proxy icon of a window title,
+// which Skim does not show: it hides the title under the toolbar. What is dropped
+// is the file on disk, so unsaved changes are saved first, as Save does (a
+// signature goes to "<name>-signed"); a save that does not finish at once (a
+// panel, an error) leaves no drag. A copy, never a move: the file stays put. It
+// drags from a window in the back too, the way Finder does, and Skim stays behind
+// the app it is dragged into.
+@interface SKFileDragButton : NSSegmentedControl <NSDraggingSource>
+@property (nonatomic, nullable, weak) SKMainWindowController *mainController;
+@end
+
+@implementation SKFileDragButton
+
+@synthesize mainController;
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)theEvent { return YES; }
+
+- (BOOL)shouldDelayWindowOrderingForEvent:(NSEvent *)theEvent { return YES; }
+
+- (void)mouseDown:(NSEvent *)theEvent {
+    NSDocument *document = [mainController document];
+    if ([self isEnabled] == NO || [document fileURL] == nil)
+        return;
+    NSPoint start = [theEvent locationInWindow];
+    NSEvent *event = nil;
+    do {
+        event = [[self window] nextEventMatchingMask:NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged];
+        if ([event type] == NSEventTypeLeftMouseUp)
+            return;
+    } while (fabs([event locationInWindow].x - start.x) < 3.0 && fabs([event locationInWindow].y - start.y) < 3.0);
+    if ([document isDocumentEdited]) {
+        [document saveDocument:self];
+        if ([document isDocumentEdited])
+            return;
+    }
+    NSURL *fileURL = [document fileURL];
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:fileURL];
+    [item setDraggingFrame:NSMakeRect(point.x - 24.0, point.y - 24.0, 48.0, 48.0) contents:[[NSWorkspace sharedWorkspace] iconForFile:[fileURL path]]];
+    [NSApp preventWindowOrdering];
+    [self beginDraggingSessionWithItems:@[item] event:event source:self];
+}
+
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
+    return context == NSDraggingContextOutsideApplication ? (NSDragOperationCopy | NSDragOperationGeneric) : NSDragOperationNone;
+}
+
+@end
+
+#pragma mark -
+
+@interface SKMainToolbarController ()
+'''
+
+SIGNED_SAVE = '''- (void)didAddSignature {
+    mdFlags.savesSignedCopy = 1;
+}
+
+// skim-dark: the first Save after the Signature button leaves the file as it came
+// and writes the signed document beside it, as "<name>-signed": a Save As, so the
+// window moves to the new file and later saves replace that one. Only while an
+// image note is there to write into the PDF; with the signature undone, or a name
+// that already says signed, it is the plain Save. Save and the "save changes?"
+// alert of a close both come here; a Save or Save As that goes through ends it.
+- (void)saveDocumentWithDelegate:(id)delegate didSaveSelector:(SEL)didSaveSelector contextInfo:(void *)contextInfo {
+    NSURL *signedURL = nil;
+    if (mdFlags.savesSignedCopy && [self fileURL] && [[self imageNoteProperties] count] > 0)
+        signedURL = [[self fileURL] signedFileURL];
+    if (signedURL)
+        [self saveToURL:signedURL ofType:[self fileType] forSaveOperation:NSSaveAsOperation delegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
+    else
+        [super saveDocumentWithDelegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
+}
+
+// Prepare for saving and use callback to save notes and cleanup
+'''
+
+SIGNED_FILE_URL = '''- (NSURL *)signedFileURL {
+    NSString *baseName = [[self lastPathComponent] stringByDeletingPathExtension];
+    if ([baseName length] == 0 || [baseName rangeOfString:@"-signed(-[0-9]+)?$" options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound)
+        return nil;
+    NSString *fileName = [baseName stringByAppendingString:@"-signed"];
+    if ([[self pathExtension] length] > 0)
+        fileName = [fileName stringByAppendingPathExtension:[self pathExtension]];
+    return [[[self URLByDeletingLastPathComponent] URLByAppendingPathComponent:fileName isDirectory:NO] uniqueFileURL];
+}
+
+- (BOOL)isTrashedFileURL {
+'''
 
 # -------------------------------------------------------------------- edits
 
@@ -527,7 +625,7 @@ EDITS = [
     ("SKPDFView.h",
      '- (void)addAnnotationWithType:(SKNoteType)annotationType;\n',
      '- (void)addAnnotationWithType:(SKNoteType)annotationType;\n'
-     '- (void)addSignatureNoteWithImage:(NSImage *)image;\n'),
+     '- (BOOL)addSignatureNoteWithImage:(NSImage *)image;\n'),
     ("SKPDFView.m",
      '\n- (void)addAnnotationWithType:(SKNoteType)annotationType {\n',
      '\n'
@@ -535,14 +633,14 @@ EDITS = [
      '// image makes (built twice upstream, in -pasteNote:plainText: and\n'
      '// -performDragOperation:, which the fork leaves alone), in the middle of what is\n'
      '// visible, selected. A signature image rarely carries a useful resolution, so it\n'
-     '// gets a fixed width rather than its natural size.\n'
+     '// gets a fixed width rather than its natural size. NO when it beeped instead.\n'
      '#define SKSignatureNoteWidth 150.0\n'
      '\n'
-     '- (void)addSignatureNoteWithImage:(NSImage *)image {\n'
+     '- (BOOL)addSignatureNoteWithImage:(NSImage *)image {\n'
      '    NSSize size = [image size];\n'
      '    if ([self canAddNotes] == NO || size.width <= 0.0 || size.height <= 0.0) {\n'
      '        NSBeep();\n'
-     '        return;\n'
+     '        return NO;\n'
      '    }\n'
      '    NSPoint center = SKCenterPoint([self unobscuredContentRect]);\n'
      '    PDFPage *page = [self pageForPoint:center nearest:YES];\n'
@@ -557,6 +655,7 @@ EDITS = [
      '        [self setToolMode:SKToolModeText];\n'
      '    [self addAnnotation:newAnnotation toPage:page select:YES];\n'
      '    [[self window] makeFirstResponder:self];\n'
+     '    return YES;\n'
      '}\n'
      '\n'
      '- (void)addAnnotationWithType:(SKNoteType)annotationType {\n'),
@@ -564,6 +663,7 @@ EDITS = [
      '#define SKDocumentToolbarPrintItemIdentifier @"SKDocumentToolbarPrintItemIdentifier"\n',
      '#define SKDocumentToolbarPrintItemIdentifier @"SKDocumentToolbarPrintItemIdentifier"\n'
      '#define SKDocumentToolbarSignatureItemIdentifier @"SKDocumentToolbarSignatureItemIdentifier"\n'
+     '#define SKDocumentToolbarFileItemIdentifier @"SKDocumentToolbarFileItemIdentifier"\n'
      '\n'
      '#define SKSignatureImageKey @"SKSignatureImage"\n'),
     ("SKMainToolbarController.m",
@@ -580,24 +680,39 @@ EDITS = [
      '            \n'
      '            [item setLabels:NSLocalizedString(@"Signature", @"Toolbar item label")];\n'
      '            [item setToolTip:NSLocalizedString(@"Add Signature (Option-click to choose its image)", @"Tool tip message")];\n'
-     '            [item setView:[self makeSignatureButton]];\n'
+     '            [item setView:[self makeButtonOfClass:[NSSegmentedControl class] symbolName:@"signature" label:NSLocalizedString(@"Signature", @"Toolbar item label") action:@selector(addSignature:)]];\n'
      '            [item setMenuFormRepresentation:menuItem];\n'
+     '            \n'
+     '        } else if ([identifier isEqualToString:SKDocumentToolbarFileItemIdentifier]) {\n'
+     '            \n'
+     '            SKFileDragButton *button = (SKFileDragButton *)[self makeButtonOfClass:[SKFileDragButton class] symbolName:@"doc" label:NSLocalizedString(@"File", @"Toolbar item label") action:NULL];\n'
+     '            [button setMainController:mainController];\n'
+     '            \n'
+     '            [item setLabels:NSLocalizedString(@"File", @"Toolbar item label")];\n'
+     '            [item setToolTip:NSLocalizedString(@"Drag the file into another app (unsaved changes are saved first)", @"Tool tip message")];\n'
+     '            [item setView:button];\n'
      '            \n'
      '        }\n'),
     ("SKMainToolbarController.m",
      '\n- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSString *)itemIdent willBeInsertedIntoToolbar:(BOOL)willBeInserted {\n',
      '\n'
-     '// Upstream\'s buttons come from MainToolbar.xib; this one is built here, in the\n'
+     '// Upstream\'s buttons come from MainToolbar.xib; the fork\'s are built here, in the\n'
      '// style of the Print button, so the fork leaves the nib alone.\n'
-     '- (NSSegmentedControl *)makeSignatureButton {\n'
+     '- (NSSegmentedControl *)makeButtonOfClass:(Class)buttonClass symbolName:(NSString *)symbolName label:(NSString *)label action:(SEL)action {\n'
      '    NSImage *image = nil;\n'
      '    if (@available(macOS 11.0, *))\n'
-     '        image = [NSImage imageWithSystemSymbolName:@"signature" accessibilityDescription:NSLocalizedString(@"Signature", @"Toolbar item label")];\n'
-     '    NSSegmentedControl *button = image ? [NSSegmentedControl segmentedControlWithImages:@[image] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:@selector(addSignature:)] : [NSSegmentedControl segmentedControlWithLabels:@[NSLocalizedString(@"Sign", @"Toolbar item label")] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:@selector(addSignature:)];\n'
+     '        image = [NSImage imageWithSystemSymbolName:symbolName accessibilityDescription:label];\n'
+     '    NSSegmentedControl *button = image ? [buttonClass segmentedControlWithImages:@[image] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:action] : [buttonClass segmentedControlWithLabels:@[label] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:action];\n'
      '    [button setSegmentStyle:NSSegmentStyleTexturedSquare];\n'
      '    if (image)\n'
      '        [button setWidth:27.0 forSegment:0];\n'
      '    return button;\n'
+     '}\n'
+     '\n'
+     '// the note, and the mark that sends the next Save to "<name>-signed"\n'
+     '- (void)addSignatureImage:(NSImage *)image {\n'
+     '    if ([mainController.pdfView addSignatureNoteWithImage:image])\n'
+     '        [(SKMainDocument *)[mainController document] didAddSignature];\n'
      '}\n'
      '\n'
      '// Adds the signature image the preferences keep. It asks for one the first time,\n'
@@ -611,7 +726,7 @@ EDITS = [
      '    if (data && ([NSEvent modifierFlags] & NSEventModifierFlagOption) == 0)\n'
      '        image = [[NSImage alloc] initWithData:data];\n'
      '    if (image) {\n'
-     '        [mainController.pdfView addSignatureNoteWithImage:image];\n'
+     '        [self addSignatureImage:image];\n'
      '        return;\n'
      '    }\n'
      '    NSOpenPanel *openPanel = [NSOpenPanel openPanel];\n'
@@ -630,7 +745,7 @@ EDITS = [
      '            return;\n'
      '        }\n'
      '        [[NSUserDefaults standardUserDefaults] setObject:chosenData forKey:SKSignatureImageKey];\n'
-     '        [self->mainController.pdfView addSignatureNoteWithImage:chosen];\n'
+     '        [self addSignatureImage:chosen];\n'
      '    }];\n'
      '}\n'
      '\n'
@@ -638,17 +753,50 @@ EDITS = [
     ("SKMainToolbarController.m",
      '        SKDocumentToolbarNewNoteItemIdentifier];\n}\n\n',
      '        SKDocumentToolbarNewNoteItemIdentifier,\n'
-     '        SKDocumentToolbarSignatureItemIdentifier];\n}\n\n'),
+     '        SKDocumentToolbarSignatureItemIdentifier,\n'
+     '        SKDocumentToolbarFileItemIdentifier];\n}\n\n'),
     ("SKMainToolbarController.m",
      '        SKDocumentToolbarPrintItemIdentifier,\n        NSToolbarFlexibleSpaceItemIdentifier,\n',
      '        SKDocumentToolbarPrintItemIdentifier,\n'
      '        SKDocumentToolbarSignatureItemIdentifier,\n'
+     '        SKDocumentToolbarFileItemIdentifier,\n'
      '        NSToolbarFlexibleSpaceItemIdentifier,\n'),
     ("SKMainToolbarController.m",
      '    } else if ([identifier isEqualToString:NSToolbarPrintItemIdentifier]) {\n',
      '    } else if ([identifier isEqualToString:SKDocumentToolbarSignatureItemIdentifier]) {\n'
      '        return [mainController hasOverview] == NO && [mainController.pdfView canAddNotes];\n'
+     '    } else if ([identifier isEqualToString:SKDocumentToolbarFileItemIdentifier]) {\n'
+     '        return [[mainController document] fileURL] != nil;\n'
      '    } else if ([identifier isEqualToString:NSToolbarPrintItemIdentifier]) {\n'),
+
+    # 5. The signed copy and the File button (2026-11-24): to send a signed document
+    # on, its file had to be found on disk, in the folder of the app it came from
+    # (WhatsApp keeps it in its container's tmp). The File button is the file, to
+    # drag into the other app; the first Save after the Signature button writes it
+    # beside the original, as "<name>-signed" (NSURL's signedFileURL,
+    # tools/signednamecheck.sh), and leaves the original as it came.
+    ("SKMainToolbarController.m",
+     '#import "SKApplicationController.h"\n',
+     '#import "SKApplicationController.h"\n'
+     '#import "SKMainDocument.h"\n'),
+    ("SKMainToolbarController.m", '\n@interface SKMainToolbarController ()\n', FILE_DRAG_BUTTON),
+    ("SKMainDocument.h",
+     '- (IBAction)convertNotes:(nullable id)sender;\n',
+     '- (IBAction)convertNotes:(nullable id)sender;\n'
+     '\n'
+     '// skim-dark: the Signature button added a signature. The next Save, while an image\n'
+     '// note is still there, keeps the file as it came and writes the signed document\n'
+     '// beside it as "<name>-signed", where the document then lives.\n'
+     '- (void)didAddSignature;\n'),
+    ("SKMainDocument.m", '// Prepare for saving and use callback to save notes and cleanup\n', SIGNED_SAVE),
+    ("NSURL_SKExtensions.h",
+     '@property (nonatomic, readonly) NSURL *uniqueFileURL;\n',
+     '@property (nonatomic, readonly) NSURL *uniqueFileURL;\n'
+     '// skim-dark: where a document signed with the Signature button is saved, beside\n'
+     '// this file: "<name>-signed.<extension>", made unique like uniqueFileURL; nil when\n'
+     '// the name already ends in -signed (or -signed-2), and the document saves in place.\n'
+     '@property (nonatomic, nullable, readonly) NSURL *signedFileURL;\n'),
+    ("NSURL_SKExtensions.m", '- (BOOL)isTrashedFileURL {\n', SIGNED_FILE_URL),
 
     # 3. Save writes the image notes into the PDF. A Skim note lives in the file's
     # extended attributes, which no other reader sees: a signature saved that way
@@ -661,6 +809,7 @@ EDITS = [
      '        unsigned int recentInfoNeedsUpdate:1;\n'
      '        unsigned int savingDocument:1;\n'
      '        unsigned int embeddedImageNotes:1;\n'
+     '        unsigned int savesSignedCopy:1;\n'
      '    } mdFlags;\n'),
     ("SKMainDocument.m",
      '\n- (NSArray *)SkimNoteProperties {\n',
@@ -683,11 +832,16 @@ EDITS = [
      '    return  array;\n'
      '}\n'
      '\n'
+     '// the image notes, the ones Save writes into the PDF\n'
+     '- (NSArray *)imageNoteProperties {\n'
+     '    return [[self SkimNoteProperties] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id dict, NSDictionary *bindings){ return SKIsImageNoteProperties(dict); }]];\n'
+     '}\n'
+     '\n'
      '// The PDF data with the image notes written into it, as Stamp annotations that\n'
      '// carry their own appearance; nil when there is none, or when the PDF does not\n'
      '// allow notes. Added the way Skim adds notes when it opens a file.\n'
      '- (NSData *)PDFDataWithImageNotes {\n'
-     '    NSArray *imageNotes = [[self SkimNoteProperties] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id dict, NSDictionary *bindings){ return SKIsImageNoteProperties(dict); }]];\n'
+     '    NSArray *imageNotes = [self imageNoteProperties];\n'
      '    if ([imageNotes count] == 0)\n'
      '        return nil;\n'
      '    PDFDocument *pdfDoc = [[PDFDocument alloc] initWithData:pdfData];\n'
@@ -732,6 +886,10 @@ EDITS = [
      '            if (errorOrNil == nil && [self revertToContentsOfURL:[self fileURL] ofType:[self fileType] error:&revertError] == NO && revertError)\n'
      '                [self presentError:revertError];\n'
      '        }\n'
+     '        \n'
+     '        // a Save or Save As that went through ends the one to a signed copy\n'
+     '        if (errorOrNil == nil && (saveOperation == NSSaveOperation || saveOperation == NSSaveAsOperation))\n'
+     '            mdFlags.savesSignedCopy = 0;\n'
      '        \n'),
 
     # 4. Notes drawn at the screen's resolution. PDFKit (macOS 27) draws each

@@ -220,7 +220,7 @@ enum {
 
 - (void)addAnnotationsForSelections:(nullable id)sender;
 - (void)addAnnotationWithType:(SKNoteType)annotationType;
-- (void)addSignatureNoteWithImage:(NSImage *)image;
+- (BOOL)addSignatureNoteWithImage:(NSImage *)image;
 - (void)removeCurrentAnnotation:(nullable id)sender;
 - (void)removeThisAnnotation:(nullable id)sender;
 

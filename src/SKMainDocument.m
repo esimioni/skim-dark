@@ -509,11 +509,16 @@ static BOOL SKIsImageNoteProperties(NSDictionary *dict) {
     return  array;
 }
 
+// the image notes, the ones Save writes into the PDF
+- (NSArray *)imageNoteProperties {
+    return [[self SkimNoteProperties] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id dict, NSDictionary *bindings){ return SKIsImageNoteProperties(dict); }]];
+}
+
 // The PDF data with the image notes written into it, as Stamp annotations that
 // carry their own appearance; nil when there is none, or when the PDF does not
 // allow notes. Added the way Skim adds notes when it opens a file.
 - (NSData *)PDFDataWithImageNotes {
-    NSArray *imageNotes = [[self SkimNoteProperties] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id dict, NSDictionary *bindings){ return SKIsImageNoteProperties(dict); }]];
+    NSArray *imageNotes = [self imageNoteProperties];
     if ([imageNotes count] == 0)
         return nil;
     PDFDocument *pdfDoc = [[PDFDocument alloc] initWithData:pdfData];
@@ -593,6 +598,26 @@ static BOOL SKIsImageNoteProperties(NSDictionary *dict) {
     return writeNotesOK;
 }
 
+- (void)didAddSignature {
+    mdFlags.savesSignedCopy = 1;
+}
+
+// skim-dark: the first Save after the Signature button leaves the file as it came
+// and writes the signed document beside it, as "<name>-signed": a Save As, so the
+// window moves to the new file and later saves replace that one. Only while an
+// image note is there to write into the PDF; with the signature undone, or a name
+// that already says signed, it is the plain Save. Save and the "save changes?"
+// alert of a close both come here; a Save or Save As that goes through ends it.
+- (void)saveDocumentWithDelegate:(id)delegate didSaveSelector:(SEL)didSaveSelector contextInfo:(void *)contextInfo {
+    NSURL *signedURL = nil;
+    if (mdFlags.savesSignedCopy && [self fileURL] && [[self imageNoteProperties] count] > 0)
+        signedURL = [[self fileURL] signedFileURL];
+    if (signedURL)
+        [self saveToURL:signedURL ofType:[self fileType] forSaveOperation:NSSaveAsOperation delegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
+    else
+        [super saveDocumentWithDelegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
+}
+
 // Prepare for saving and use callback to save notes and cleanup
 // On 10.7+ all save operations go through this method, so we use this
 - (void)saveToURL:(NSURL *)absoluteURL ofType:(NSString *)typeName forSaveOperation:(NSSaveOperationType)saveOperation completionHandler:(void (^)(NSError *))completionHandler {
@@ -635,6 +660,10 @@ static BOOL SKIsImageNoteProperties(NSDictionary *dict) {
             if (errorOrNil == nil && [self revertToContentsOfURL:[self fileURL] ofType:[self fileType] error:&revertError] == NO && revertError)
                 [self presentError:revertError];
         }
+        
+        // a Save or Save As that went through ends the one to a signed copy
+        if (errorOrNil == nil && (saveOperation == NSSaveOperation || saveOperation == NSSaveAsOperation))
+            mdFlags.savesSignedCopy = 0;
         
         if (completionHandler)
             completionHandler(errorOrNil);

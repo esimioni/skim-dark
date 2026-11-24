@@ -5,6 +5,9 @@
 #   tools/install.sh --dark-chrome    also set SKDisableSearchBarBlurring, which
 #                                     keeps Tahoe from flipping the toolbar and
 #                                     tab bar to their light variant (README)
+#   tools/install.sh --background     reopen Skim behind the app in front, so an
+#                                     install while someone types in another app
+#                                     does not take the keystrokes (both flags combine)
 #
 # Skim must be quit for both steps: a running app keeps the old binary mapped,
 # and it rewrites its user defaults on quit, discarding anything written while
@@ -22,7 +25,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILT="$ROOT/src/build/Release/Skim.app"
 DEST="/Applications/Skim.app"
 DARK_CHROME=0
-[[ "${1:-}" == "--dark-chrome" ]] && DARK_CHROME=1
+OPEN_FLAGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --dark-chrome) DARK_CHROME=1 ;;
+    --background)  OPEN_FLAGS=(-g) ;;
+    *) echo "opção desconhecida: $arg"; exit 1 ;;
+  esac
+done
 
 [[ -d "$BUILT" ]] || { echo "sem build em $BUILT — rode o xcodebuild do README"; exit 1; }
 codesign --verify --deep "$BUILT" 2>/dev/null || { echo "build sem assinatura válida — rode tools/postbuild.py"; exit 1; }
@@ -63,5 +73,5 @@ if [[ $WAS_RUNNING -eq 1 ]]; then
   defaults write -app Skim SKIsRelaunch -bool YES
 fi
 
-open -a "$DEST"
+open ${OPEN_FLAGS[@]+"${OPEN_FLAGS[@]}"} -a "$DEST"
 echo "ok — Skim $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DEST/Contents/Info.plist") reaberto"

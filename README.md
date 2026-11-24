@@ -4,7 +4,8 @@ A fork of [Skim](https://skim-app.sourceforge.io/) (BSD 3-clause) that makes
 the *text* end of the dark-mode inversion configurable, and puts both ends in
 the preferences window; it also toggles the inversion itself from the keyboard
 (`⌃⌘I`), and signs PDFs: a toolbar button puts a signature on the page, and Save
-writes it into the PDF. The colors were proposed upstream and declined, so it is maintained
+writes it into the PDF, beside the original as `<name>-signed`; a File button
+hands the file to another app by dragging. The colors were proposed upstream and declined, so it is maintained
 here: [github.com/esimioni/skim-dark](https://github.com/esimioni/skim-dark).
 
 ## The problem
@@ -129,6 +130,19 @@ System Events) makes the note in 0.44 s, with no permission prompt; Save leaves
 a Stamp whose appearance draws `/Im1`, poppler draws the signature inside the
 note's rectangle and nowhere else, and a link on the same page survives.
 
+**The signed document goes beside the original.** The first Save after the
+Signature button does not replace the file: it writes `<name>-signed.<ext>` in
+the same folder (`-signed-1`, `-signed-2` when that name is taken, Skim's own
+`uniqueFileURL`), and the window moves to the new file, so later saves replace
+that one; the file as it came stays as it came. It is a Save As underneath, in
+`-saveDocumentWithDelegate:...`, so Save and the "save changes?" alert of a close
+both take it. A name that already ends in `-signed` saves in place, and so does
+a Save after the signature was undone: it needs an image note to write. The rule
+for the name is `NSURL`'s `signedFileURL`; `tools/signednamecheck.sh` compiles the
+real `NSURL_SKExtensions.m` and checks nine names (taken, already signed,
+numbered, upper case, a name that only contains `-signed`, no extension, dots),
+and fails against each of four broken versions of the rule.
+
 ### Notes at the screen's resolution
 
 The signature came out pixelated and washed out on screen, sharp in Preview.
@@ -157,6 +171,33 @@ it is signed on. One ink color for the whole stroke (22 KB, +28 KB) is lighter
 but visibly darker: it paints the pale parts of a ballpoint line with the color
 of its core (35/255 off on average).
 
+## File button
+
+**File**, after Signature in the toolbar, is the document's file, to drag into
+another app: a chat, a mail, a folder. It is what the proxy icon of a window
+title is elsewhere; Skim's window has none to show, since it hides its title
+while the toolbar is up (`SKWindowTitleHiddenForToolbar` in `SKMainWindow.m`). A
+PDF opened from WhatsApp lives in WhatsApp's container
+(`~/Library/Containers/net.whatsapp.WhatsApp/Data/tmp/documents/<UUID>/`), where
+nobody goes looking for it to send it back; the button is that file.
+
+What is dropped is the file on disk. With unsaved changes the drag saves first,
+as Save does (a signature goes to `-signed`), and drags the saved file; a save
+that does not finish at once (a panel, an error) leaves no drag. Out of Skim the
+drag offers a copy, never a move, so the open file stays put; inside Skim it
+offers nothing. Like Finder it drags from a window in the back without bringing
+Skim forward (`acceptsFirstMouse:`, `shouldDelayWindowOrderingForEvent:`,
+`preventWindowOrdering`), so Skim stays behind the app it drops into. A plain
+click does nothing.
+
+Checked on the installed build on 2026-11-24 with `tools/sendcheck.sh`, 11 of 11:
+Signature + Save gave `sendcheck A-signed.pdf` with the Stamp and left the
+original byte for byte; Signature + a real mouse drag of File, with Skim behind
+another app, saved to `sendcheck B-signed.pdf` first and dropped that file,
+offered as a copy (mask 5, copy + generic), Skim still in the back at the drop.
+The save inside the mouse-down finished before the drag began, so a drag of an
+edited document goes on in one gesture.
+
 ## Layout
 
 - `src/` — Skim trunk at the revision of the last `upstream:` commit, with the
@@ -172,10 +213,18 @@ of its core (35/255 off on average).
 - `tools/imagenotecheck.sh` (+ `.m`) — writes an image note through SkimNotes and
   checks that the saved appearance really draws the image; give it
   `/Applications/Skim.app/Contents/Frameworks` to check an installed app
+- `tools/signednamecheck.sh` (+ `.m`) — the name of the signed copy, checked on the
+  real `NSURL_SKExtensions.m` of `src/`
+- `tools/sendcheck.sh` (+ `dragtest.swift`) — signs and sends through the window of
+  the installed app, on test PDFs of its own: Signature + Save, and Signature + a
+  real mouse drag of File into a window of its own; takes the screen ~15 s, only
+  after 30 s with nobody at the Mac (`--wait` waits for that)
 - `tools/postbuild.py` — strips Sparkle's `SUFeedURL` from the built bundle and
   re-signs it; run after every build (see below)
 - `tools/install.sh` — quits Skim, swaps `/Applications/Skim.app`, reopens it
-  with the documents that were open
+  with the documents that were open; `--background` reopens it behind the app in
+  front, so an install while someone types in another app does not take the
+  keystrokes
 - `patches/` — `svn diff` output, one file per change, which is what upstream
   would receive
 - `LICENSE` — BSD 3-clause: upstream's, and the same terms for the fork
@@ -189,7 +238,8 @@ signature touches six more: the saved appearance (`SkimNotes/SKNPDFAnnotationNot
 the note (`SKPDFView.h/.m`), the button, built in code rather than in
 `MainToolbar.xib` (`SKMainToolbarController.m`), and Save (`SKMainDocument.h/.m`);
 the notes at the screen's resolution add `PDFDocumentView_SKExtensions.h/.m` and two
-calls in `SKPDFView.m`.
+calls in `SKPDFView.m`; the signed copy adds `NSURL_SKExtensions.h/.m`, and the File
+button lives in `SKMainToolbarController.m`.
 Only the Base localization gains the new labels; the other `*.lproj/*.strings` are untouched
 and fall back to English.
 
@@ -363,13 +413,15 @@ svn diff --diff-cmd diff -x -U3 SkimNotes/SKNPDFAnnotationNote.m \
   > ../patches/image-note-appearance.diff
 svn diff --diff-cmd diff -x -U3 \
   SKPDFView.h SKPDFView.m SKMainToolbarController.m SKMainDocument.h SKMainDocument.m \
+  NSURL_SKExtensions.h NSURL_SKExtensions.m \
   > ../patches/signature-button.diff
 svn diff --diff-cmd diff -x -U3 PDFDocumentView_SKExtensions.h PDFDocumentView_SKExtensions.m \
   > ../patches/annotation-layer-scale.diff
 ```
 
 `SKPDFView.m` carries the two calls of the annotation-layer fix as well, so they
-travel in `signature-button.diff`.
+travel in `signature-button.diff`, and so do the signed copy and the File button,
+which share its files.
 
 `image-note-appearance.diff` is the one a bug report upstream would carry: it
 stands alone, and without it the image of any image note is lost in the PDFs

@@ -64,6 +64,7 @@
 #import "SKNoteToolbarController.h"
 #import "NSObject_SKExtensions.h"
 #import "SKApplicationController.h"
+#import "SKMainDocument.h"
 
 #define SKDocumentToolbarIdentifier @"SKDocumentToolbar"
 
@@ -113,6 +114,7 @@
 #define SKDocumentToolbarSplitPDFItemIdentifier @"SKDocumentToolbarSplitPDFItemIdentifier"
 #define SKDocumentToolbarPrintItemIdentifier @"SKDocumentToolbarPrintItemIdentifier"
 #define SKDocumentToolbarSignatureItemIdentifier @"SKDocumentToolbarSignatureItemIdentifier"
+#define SKDocumentToolbarFileItemIdentifier @"SKDocumentToolbarFileItemIdentifier"
 
 #define SKSignatureImageKey @"SKSignatureImage"
 
@@ -142,6 +144,58 @@ static char SKDefaultsObservationContext;
                 [item setEnabled:[(id)[self delegate] validateToolbarItem:item]];
         }
     }
+}
+
+@end
+
+#pragma mark -
+
+// skim-dark: the File toolbar button. It is the document's file, to drag into
+// another app (a chat, a mail, a folder), like the proxy icon of a window title,
+// which Skim does not show: it hides the title under the toolbar. What is dropped
+// is the file on disk, so unsaved changes are saved first, as Save does (a
+// signature goes to "<name>-signed"); a save that does not finish at once (a
+// panel, an error) leaves no drag. A copy, never a move: the file stays put. It
+// drags from a window in the back too, the way Finder does, and Skim stays behind
+// the app it is dragged into.
+@interface SKFileDragButton : NSSegmentedControl <NSDraggingSource>
+@property (nonatomic, nullable, weak) SKMainWindowController *mainController;
+@end
+
+@implementation SKFileDragButton
+
+@synthesize mainController;
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)theEvent { return YES; }
+
+- (BOOL)shouldDelayWindowOrderingForEvent:(NSEvent *)theEvent { return YES; }
+
+- (void)mouseDown:(NSEvent *)theEvent {
+    NSDocument *document = [mainController document];
+    if ([self isEnabled] == NO || [document fileURL] == nil)
+        return;
+    NSPoint start = [theEvent locationInWindow];
+    NSEvent *event = nil;
+    do {
+        event = [[self window] nextEventMatchingMask:NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged];
+        if ([event type] == NSEventTypeLeftMouseUp)
+            return;
+    } while (fabs([event locationInWindow].x - start.x) < 3.0 && fabs([event locationInWindow].y - start.y) < 3.0);
+    if ([document isDocumentEdited]) {
+        [document saveDocument:self];
+        if ([document isDocumentEdited])
+            return;
+    }
+    NSURL *fileURL = [document fileURL];
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:fileURL];
+    [item setDraggingFrame:NSMakeRect(point.x - 24.0, point.y - 24.0, 48.0, 48.0) contents:[[NSWorkspace sharedWorkspace] iconForFile:[fileURL path]]];
+    [NSApp preventWindowOrdering];
+    [self beginDraggingSessionWithItems:@[item] event:event source:self];
+}
+
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
+    return context == NSDraggingContextOutsideApplication ? (NSDragOperationCopy | NSDragOperationGeneric) : NSDragOperationNone;
 }
 
 @end
@@ -930,8 +984,17 @@ static char SKDefaultsObservationContext;
             
             [item setLabels:NSLocalizedString(@"Signature", @"Toolbar item label")];
             [item setToolTip:NSLocalizedString(@"Add Signature (Option-click to choose its image)", @"Tool tip message")];
-            [item setView:[self makeSignatureButton]];
+            [item setView:[self makeButtonOfClass:[NSSegmentedControl class] symbolName:@"signature" label:NSLocalizedString(@"Signature", @"Toolbar item label") action:@selector(addSignature:)]];
             [item setMenuFormRepresentation:menuItem];
+            
+        } else if ([identifier isEqualToString:SKDocumentToolbarFileItemIdentifier]) {
+            
+            SKFileDragButton *button = (SKFileDragButton *)[self makeButtonOfClass:[SKFileDragButton class] symbolName:@"doc" label:NSLocalizedString(@"File", @"Toolbar item label") action:NULL];
+            [button setMainController:mainController];
+            
+            [item setLabels:NSLocalizedString(@"File", @"Toolbar item label")];
+            [item setToolTip:NSLocalizedString(@"Drag the file into another app (unsaved changes are saved first)", @"Tool tip message")];
+            [item setView:button];
             
         }
     }
@@ -939,17 +1002,23 @@ static char SKDefaultsObservationContext;
     return item;
 }
 
-// Upstream's buttons come from MainToolbar.xib; this one is built here, in the
+// Upstream's buttons come from MainToolbar.xib; the fork's are built here, in the
 // style of the Print button, so the fork leaves the nib alone.
-- (NSSegmentedControl *)makeSignatureButton {
+- (NSSegmentedControl *)makeButtonOfClass:(Class)buttonClass symbolName:(NSString *)symbolName label:(NSString *)label action:(SEL)action {
     NSImage *image = nil;
     if (@available(macOS 11.0, *))
-        image = [NSImage imageWithSystemSymbolName:@"signature" accessibilityDescription:NSLocalizedString(@"Signature", @"Toolbar item label")];
-    NSSegmentedControl *button = image ? [NSSegmentedControl segmentedControlWithImages:@[image] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:@selector(addSignature:)] : [NSSegmentedControl segmentedControlWithLabels:@[NSLocalizedString(@"Sign", @"Toolbar item label")] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:@selector(addSignature:)];
+        image = [NSImage imageWithSystemSymbolName:symbolName accessibilityDescription:label];
+    NSSegmentedControl *button = image ? [buttonClass segmentedControlWithImages:@[image] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:action] : [buttonClass segmentedControlWithLabels:@[label] trackingMode:NSSegmentSwitchTrackingMomentary target:self action:action];
     [button setSegmentStyle:NSSegmentStyleTexturedSquare];
     if (image)
         [button setWidth:27.0 forSegment:0];
     return button;
+}
+
+// the note, and the mark that sends the next Save to "<name>-signed"
+- (void)addSignatureImage:(NSImage *)image {
+    if ([mainController.pdfView addSignatureNoteWithImage:image])
+        [(SKMainDocument *)[mainController document] didAddSignature];
 }
 
 // Adds the signature image the preferences keep. It asks for one the first time,
@@ -963,7 +1032,7 @@ static char SKDefaultsObservationContext;
     if (data && ([NSEvent modifierFlags] & NSEventModifierFlagOption) == 0)
         image = [[NSImage alloc] initWithData:data];
     if (image) {
-        [mainController.pdfView addSignatureNoteWithImage:image];
+        [self addSignatureImage:image];
         return;
     }
     NSOpenPanel *openPanel = [NSOpenPanel openPanel];
@@ -982,7 +1051,7 @@ static char SKDefaultsObservationContext;
             return;
         }
         [[NSUserDefaults standardUserDefaults] setObject:chosenData forKey:SKSignatureImageKey];
-        [self->mainController.pdfView addSignatureNoteWithImage:chosen];
+        [self addSignatureImage:chosen];
     }];
 }
 
@@ -1013,7 +1082,8 @@ static char SKDefaultsObservationContext;
         SKDocumentToolbarZoomInActualOutItemIdentifier,
         SKDocumentToolbarToolModeItemIdentifier,
         SKDocumentToolbarNewNoteItemIdentifier,
-        SKDocumentToolbarSignatureItemIdentifier];
+        SKDocumentToolbarSignatureItemIdentifier,
+        SKDocumentToolbarFileItemIdentifier];
 }
 
 - (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar {
@@ -1063,6 +1133,7 @@ static char SKDefaultsObservationContext;
         SKDocumentToolbarInfoItemIdentifier,
         SKDocumentToolbarPrintItemIdentifier,
         SKDocumentToolbarSignatureItemIdentifier,
+        SKDocumentToolbarFileItemIdentifier,
         NSToolbarFlexibleSpaceItemIdentifier,
         NSToolbarSpaceItemIdentifier];
 }
@@ -1113,6 +1184,8 @@ static char SKDefaultsObservationContext;
         return [mainController.pdfView.document isLocked] == NO;
     } else if ([identifier isEqualToString:SKDocumentToolbarSignatureItemIdentifier]) {
         return [mainController hasOverview] == NO && [mainController.pdfView canAddNotes];
+    } else if ([identifier isEqualToString:SKDocumentToolbarFileItemIdentifier]) {
+        return [[mainController document] fileURL] != nil;
     } else if ([identifier isEqualToString:NSToolbarPrintItemIdentifier]) {
         return [mainController.pdfView.document isLocked] == NO;
     }
